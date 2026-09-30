@@ -57,5 +57,5 @@ does the same thing.
 ## Status
 
 - [x] T01 Repository, seed helper, machine check
-- [ ] T02 Geometry
+- [x] T02 Geometry
 - [ ] T03 Catalog
