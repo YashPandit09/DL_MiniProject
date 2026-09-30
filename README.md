@@ -58,4 +58,4 @@ does the same thing.
 
 - [x] T01 Repository, seed helper, machine check
 - [x] T02 Geometry
-- [ ] T03 Catalog
+- [x] T03 Catalog (living room; the bedroom is P2)
