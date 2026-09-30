@@ -1,0 +1,3 @@
+# Master configuration. Every run saves the config it used next to its outputs
+# (Tech Spec Section 9.2). Sections are added task by task.
+seed: 0
