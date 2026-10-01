@@ -43,6 +43,7 @@ does the same thing.
 | `python run.py test` | Run the unit tests (extra arguments go to pytest, for example `python run.py test -k geometry`) |
 | `python run.py check-env` | Versions, GPU and memory, determinism check, evaluator training speed |
 | `python run.py generator-report` | Generate 2,000 Set A layouts, print acceptance, styles and quality, and plot the share of attempts rejected by room area and item count (`reports/figures/generator_rejection.png`; `--layouts N` and `--seed S` change the run) |
+| `python run.py set-b-report` | Generate 2,000 Set B layouts and print the share valid and mean quality per perturbation type |
 | `python -m spacegen.viz layout.json layout.png` | Draw a layout JSON as a floor plan with its hard-check results |
 
 ## Reproducibility
@@ -71,3 +72,7 @@ does the same thing.
 - [x] T11 Set A generator with all three living-room styles: (a) wall sofa, (b) floating sofa,
   (c) L-shape (styles (b) and (c) moved here from T13, which keeps the Set B perturbations);
   furniture that grows with room area; rejection report
+- [x] T13 Set B for the evaluator: half generator layouts, half perturbed (jitter, rotation, random,
+  forced overlap, near-miss at the overlap tolerance and at the door zone), each labelled by the checker
+- [x] T14 Splits 70/15/15; held-out rooms (interpolation 22 to 26 m², above 32 m², out of range) that
+  training never sees; diversity reference of generator layouts

@@ -19,3 +19,24 @@ generator:             # Set A layouts and the G0 reference (T11, Tech Spec 2.4)
   optional_items:      # (T11) each optional item is in the room with a probability that rises
     area: [10.5, 30.0] # linearly with floor area (m^2) between these two points
     probability: [0.25, 0.75]
+
+set_b:                 # labelled layouts for the CNN evaluator (T13, Tech Spec 2.4). Half are
+                       # generator layouts as they come; the other half are perturbed copies,
+                       # a tenth of Set B per type: jitter, rotation, random, overlap, near-miss.
+  clean_share: 0.5     # (spec)
+  jitter_sigmas: [0.1, 0.3, 0.6]  # (spec) m; each sigma gets a third of the jitter share
+  jitter_items: 0.5    # (T13) chance that each item is jittered; at least one always is
+  near_miss_area: [0.002, 0.0125]  # (T13) overlap of two items, log-uniform, so half fall below
+                       # the 0.005 m^2 tolerance (the spec's 0.002-0.05 would make 70% invalid)
+  near_miss_gap: 0.03  # (T13) door near-miss: from this far clear of the zone to this far inside
+  near_miss_reach: 1.0 # (T13) near-miss moves of at most this length (m) are preferred
+
+splits:                # (T14, Tech Spec 2.4)
+  fractions: [0.70, 0.15, 0.15]  # (spec) train, validation, test, split by layout
+  held_out:            # (spec) rooms that training never sees; Set A and Set B redraw them
+    interpolation: {area: [22.0, 26.0]}       # a gap inside the training ranges
+    unseen_combination: {area: [32.0, .inf]}  # each W and D occurs in training, not together
+    out_of_range: {width: [7.0, 8.0], depth: [6.0, 7.0]}  # beyond the training ranges
+  held_out_rooms: 1000 # (T14) rooms per held-out set, each with one generator layout
+  diversity_rooms: 200 # (spec) test rooms for the diversity reference (G0) ...
+  diversity_layouts: 20  # (spec) ... with this many generator layouts each

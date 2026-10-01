@@ -80,14 +80,57 @@ class Condition:
     def area(self) -> float:
         return self.width * self.depth
 
+    @classmethod
+    def of(cls, layout: Layout, catalog: RoomCatalog) -> Condition:
+        """The condition a layout was made for."""
+        items = {catalog.slots[k].name: layout.variant_ids[k] for k in np.flatnonzero(layout.mask)}
+        return cls(layout.width, layout.depth, layout.door_wall, layout.door_offset, items)
+
 
 # --------------------------------------------------------------------------- sampling rooms
 
-def sample_condition(rng: np.random.Generator, catalog: RoomCatalog, rules: Rules,
-                     config: GeneratorConfig) -> Condition:
-    """Room size and door as in Tech Spec 2.2, then the furniture (2.4, step 1)."""
-    room = rules.rooms[catalog.room_type]
-    width, depth = float(rng.uniform(*room.width)), float(rng.uniform(*room.depth))
+INF = float("inf")
+
+
+@dataclass(frozen=True)
+class Region:
+    """The rooms whose width, depth and floor area all lie in these closed ranges."""
+    width: tuple[float, float] = (-INF, INF)
+    depth: tuple[float, float] = (-INF, INF)
+    area: tuple[float, float] = (-INF, INF)
+
+    def contains(self, width: float, depth: float) -> bool:
+        return all(low <= value <= high for value, (low, high)
+                   in ((width, self.width), (depth, self.depth), (width * depth, self.area)))
+
+
+@dataclass(frozen=True)
+class RoomRange:
+    """W and D drawn uniformly from their ranges, and drawn again until the room lies inside
+    `within` and outside every region in `exclude` (held-out test regions, T14)."""
+    width: tuple[float, float]
+    depth: tuple[float, float]
+    within: Region = Region()
+    exclude: tuple[Region, ...] = ()
+
+    def sample(self, rng: np.random.Generator) -> tuple[float, float]:
+        for _ in range(100_000):
+            width, depth = float(rng.uniform(*self.width)), float(rng.uniform(*self.depth))
+            if self.within.contains(width, depth) and not any(r.contains(width, depth) for r in self.exclude):
+                return width, depth
+        raise ValueError(f"no room of {self} can be drawn")
+
+
+def sample_condition(rng: np.random.Generator, catalog: RoomCatalog, rules: Rules, config: GeneratorConfig,
+                     rooms: RoomRange | None = None) -> Condition:
+    """Room size and door as in Tech Spec 2.2, then the furniture (2.4, step 1).
+
+    `rooms` defaults to the room type's ranges in rules.yaml with nothing excluded.
+    """
+    if rooms is None:
+        room = rules.rooms[catalog.room_type]
+        rooms = RoomRange(room.width, room.depth)
+    width, depth = rooms.sample(rng)
     door_wall = WALLS[rng.integers(len(WALLS))]
     return Condition(width, depth, door_wall, float(rng.uniform()),
                      sample_furniture(rng, width * depth, catalog, config))
@@ -343,7 +386,7 @@ def generate_layout(cond: Condition, rng: np.random.Generator, catalog: RoomCata
         if result.valid:
             attempts.append(Attempt(style, wall, "valid"))
             return Generated(layout, style, quality_score(layout, catalog, rules, reach=reach), tuple(attempts))
-        attempts.append(Attempt(style, wall, "invalid", _failed_checks(result)))
+        attempts.append(Attempt(style, wall, "invalid", failed_checks(result)))
     return Generated(None, None, None, tuple(attempts))
 
 
@@ -355,14 +398,15 @@ class GeneratedSet:
 
 
 def generate_set_a(n_layouts: int, rng: np.random.Generator, catalog: RoomCatalog, rules: Rules,
-                   config: GeneratorConfig) -> GeneratedSet:
-    """Draw rooms until n_layouts of them have a valid layout (Set A, Tech Spec 2.4)."""
+                   config: GeneratorConfig, rooms: RoomRange | None = None) -> GeneratedSet:
+    """Draw rooms (from `rooms`, see sample_condition) until n_layouts of them have a valid
+    layout (Set A, Tech Spec 2.4)."""
     layouts, info, log = [], [], []
     room = 0
     while len(layouts) < n_layouts:
         if room >= 10 * n_layouts + 100:
             raise RuntimeError(f"only {len(layouts)} of {n_layouts} layouts after {room} rooms; check the settings")
-        cond = sample_condition(rng, catalog, rules, config)
+        cond = sample_condition(rng, catalog, rules, config, rooms)
         result = generate_layout(cond, rng, catalog, rules, config)
         log += [{"room": room, "width": cond.width, "depth": cond.depth, "area": cond.area, "items": len(cond.items),
                  "attempt": i, "style": a.style, "wall": a.wall, "outcome": a.outcome, "failed": " ".join(a.failed)}
@@ -387,7 +431,7 @@ def rejection_summary(attempts: pd.DataFrame, by: str) -> pd.DataFrame:
     return per_attempt.join(per_room)
 
 
-def _failed_checks(result: CheckResult) -> tuple[str, ...]:
+def failed_checks(result: CheckResult) -> tuple[str, ...]:
     flags = (("H1", result.in_room), ("H2", result.no_overlap), ("H3", result.door_clear), ("H4", result.reachable))
     return tuple(name for name, passed in flags if not passed)
 

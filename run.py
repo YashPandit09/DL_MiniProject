@@ -24,6 +24,10 @@ TASKS: dict[str, tuple[str, list[list[str]]]] = {
         "generate Set A layouts and plot how often attempts are rejected",
         [[PY, "-m", "spacegen.generator"]],
     ),
+    "set-b-report": (
+        "generate Set B layouts and print their labels per perturbation type",
+        [[PY, "-m", "spacegen.perturb"]],
+    ),
 }
 
 
