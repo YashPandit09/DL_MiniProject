@@ -121,6 +121,8 @@ def _parse_slot(where: str, position: int, spec: dict) -> Slot:
     for v in variants:
         if min(v.w, v.d, v.h) <= 0 or v.price < 0:
             raise CatalogError(f"{where}: variant {v.id!r} needs positive sizes and a price of at least 0")
+        if slot.rot_symmetry == 4 and v.w != v.d:  # a quarter turn must not change the footprint
+            raise CatalogError(f"{where}: rot_symmetry 4 needs square variants, {v.id!r} is {v.w} x {v.d}")
     return slot
 
 

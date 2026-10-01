@@ -87,6 +87,10 @@ def _zero_width(c):
     c["room"]["slots"][0]["variants"][0]["w"] = 0
 
 
+def _symmetric_but_not_square(c):
+    c["room"]["slots"][0]["rot_symmetry"] = 4  # its variant is 1.0 x 0.5
+
+
 def _repeat_name(c):
     c["room"]["slots"][2]["name"] = "a"
 
@@ -116,6 +120,7 @@ def _slot_in_two_groups(c):
     (_renumber_slot, "must equal its position"),
     (_bad_symmetry, "rot_symmetry must be 1, 2 or 4"),
     (_zero_width, "positive sizes"),
+    (_symmetric_but_not_square, "needs square variants"),
     (_repeat_name, "slot names must be unique"),
     (_repeat_variant_id, "variant ids must be unique"),
     (_drop_flag, "missing or unexpected field"),

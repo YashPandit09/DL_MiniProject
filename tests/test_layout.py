@@ -1,12 +1,13 @@
 """Layout tests: building layouts from the catalog, changing one item, and the layout JSON."""
 import copy
+import dataclasses
 import json
 
 import numpy as np
 import pytest
 
-from tests.layouts import ARMCHAIR, BOOKSHELF, SIDE_TABLE, SOFA
-from spacegen.layout import layout_from_dict, layout_to_dict, make_layout
+from tests.layouts import ARMCHAIR, BOOKSHELF, COFFEE_TABLE, SIDE_TABLE, SOFA
+from spacegen.layout import canonicalize, is_canonical, layout_from_dict, layout_to_dict, make_layout
 
 
 def test_make_layout_fills_one_row_per_slot(good_layout):
@@ -48,8 +49,44 @@ def test_with_item_and_without_return_changed_copies(good_layout):
     np.testing.assert_allclose(good_layout.center[ARMCHAIR], [4.2, 2.6])  # original unchanged
     removed = good_layout.without(SIDE_TABLE)
     assert not removed.mask[SIDE_TABLE] and good_layout.mask[SIDE_TABLE]
+    np.testing.assert_array_equal(removed.center[SIDE_TABLE], 0)  # zero-filled like any absent slot
+    np.testing.assert_array_equal(removed.size[SIDE_TABLE], 0)
+    assert removed.variant_ids[SIDE_TABLE] is None and good_layout.variant_ids[SIDE_TABLE] == "side_table_standard"
     with pytest.raises(ValueError):
         removed.with_item(SIDE_TABLE, center=(1.0, 1.0))
+
+
+# --------------------------------------------------------------------------- canonical form
+
+def test_canonical_form_reduces_only_symmetric_rotations(good_layout, catalog):
+    layout = good_layout.with_item(COFFEE_TABLE, rot=3).with_item(SIDE_TABLE, rot=2)
+    canonical = canonicalize(layout, catalog)
+    assert canonical.rot.tolist() == [2, 0, 1, 3, 3, 0]  # coffee table 3 mod 2, side table 0
+    assert is_canonical(canonical, catalog) and not is_canonical(layout, catalog)
+    assert is_canonical(good_layout, catalog)
+
+
+@pytest.mark.parametrize("rot", range(4))
+def test_canonical_form_keeps_every_footprint(good_layout, catalog, rot):
+    for slot in range(catalog.num_slots):
+        layout = good_layout.with_item(slot, rot=rot)
+        canonical = canonicalize(layout, catalog)
+        np.testing.assert_array_equal(canonical.eff_size, layout.eff_size)
+        np.testing.assert_array_equal(canonical.center, layout.center)
+
+
+def test_canonical_form_zero_fills_absent_slots(good_layout, catalog):
+    stale = dataclasses.replace(good_layout, mask=np.arange(6) != ARMCHAIR)  # row still holds the armchair
+    assert not is_canonical(stale, catalog)
+    canonical = canonicalize(stale, catalog)
+    assert canonical.variant_ids[ARMCHAIR] is None and canonical.rot[ARMCHAIR] == 0
+    np.testing.assert_array_equal(canonical.center[ARMCHAIR], 0)
+    np.testing.assert_array_equal(canonical.size[ARMCHAIR], 0)
+
+
+def test_interchangeable_slots_are_not_canonicalized_yet(good_layout, catalog):
+    with pytest.raises(NotImplementedError, match="interchangeable"):
+        canonicalize(good_layout, dataclasses.replace(catalog, groups=((3, 4),)))
 
 
 # --------------------------------------------------------------------------- layout JSON

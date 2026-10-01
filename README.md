@@ -66,3 +66,4 @@ does the same thing.
 - [x] T07 Evaluator input: 4-channel fractional-coverage rasters, built on the GPU
 - [x] T08 Reachability (H4)
 - [x] T09 Quality score (alignment, relations, circulation, space)
+- [x] T10 Layout vectors (condition c: 25 values, target x: 36), canonical form, dataset tensors on the GPU

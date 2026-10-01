@@ -45,10 +45,12 @@ class Layout:
         return dataclasses.replace(self, center=new_center, rot=new_rot)
 
     def without(self, slot: int) -> Layout:
-        """A copy with one slot marked absent."""
-        mask = self.mask.copy()
-        mask[slot] = False
-        return dataclasses.replace(self, mask=mask)
+        """A copy with one slot marked absent, its row zero-filled like every absent slot."""
+        center, rot, size, mask = self.center.copy(), self.rot.copy(), self.size.copy(), self.mask.copy()
+        center[slot], rot[slot], size[slot], mask[slot] = 0.0, 0, 0.0, False
+        ids = list(self.variant_ids)
+        ids[slot] = None
+        return dataclasses.replace(self, center=center, rot=rot, size=size, mask=mask, variant_ids=tuple(ids))
 
 
 def make_layout(catalog: RoomCatalog, width: float, depth: float, door_wall: str,
@@ -76,6 +78,37 @@ def make_layout(catalog: RoomCatalog, width: float, depth: float, door_wall: str
         ids[slot.index] = variant.id
     return Layout(catalog.room_type, float(width), float(depth), door_wall, float(door_offset),
                   center, rot, size, mask, tuple(ids))
+
+
+def canonicalize(layout: Layout, catalog: RoomCatalog) -> Layout:
+    """The canonical form of a layout (Tech Spec Section 1), the only form used as a training target.
+
+    A symmetric item keeps its rotation modulo 4 / rot_symmetry, so a coffee table turned by
+    180 degrees, or a side table turned any way, gives the same layout. The footprint does not
+    change: a half turn keeps the extents, and the catalog requires rot_symmetry 4 items to be
+    square. Absent slots are zero-filled.
+    """
+    if catalog.groups:  # only the bedroom has interchangeable slots (P2)
+        raise NotImplementedError(
+            f"{catalog.room_type}: interchangeable slots {[list(g) for g in catalog.groups]} are not "
+            "canonicalized yet (Tech Spec Section 1 orders them along the bed's lateral axis)")
+    if layout.room_type != catalog.room_type:
+        raise ValueError(f"layout is a {layout.room_type}, catalog is for {catalog.room_type}")
+    symmetry = np.array([s.rot_symmetry for s in catalog.slots])
+    present = layout.mask
+    return dataclasses.replace(
+        layout,
+        center=np.where(present[:, None], layout.center, 0.0),
+        rot=np.where(present, geometry.canonical_rotation(layout.rot, symmetry), 0),
+        size=np.where(present[:, None], layout.size, 0.0),
+        variant_ids=tuple(v if m else None for v, m in zip(layout.variant_ids, present)))
+
+
+def is_canonical(layout: Layout, catalog: RoomCatalog) -> bool:
+    """True if canonicalize() would leave the layout unchanged."""
+    canonical = canonicalize(layout, catalog)
+    return (np.array_equal(canonical.rot, layout.rot) and np.array_equal(canonical.center, layout.center)
+            and np.array_equal(canonical.size, layout.size) and canonical.variant_ids == layout.variant_ids)
 
 
 def layout_to_dict(layout: Layout, catalog: RoomCatalog, door_width: float,
