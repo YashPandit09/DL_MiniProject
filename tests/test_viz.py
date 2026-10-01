@@ -5,7 +5,7 @@ from matplotlib.colors import to_hex
 
 from tests.layouts import ARMCHAIR, SOFA
 from spacegen.layout import layout_to_dict
-from spacegen.viz import CRITICAL, main, plot_layout
+from spacegen.viz import CRITICAL, main, plot_layout, plot_raster
 
 
 def _labels(fig):
@@ -37,3 +37,11 @@ def test_broken_check_is_named_on_the_item_and_in_the_title(good_layout, catalog
     assert "bookshelf\n(H4)" in _labels(fig)
     assert "H4 reachable: fail (bookshelf)" in fig.get_suptitle()
     assert len(_red_patches(fig)) == 1
+
+
+def test_raster_plot_has_one_panel_per_channel(good_layout, catalog, rules):
+    from spacegen.raster import CHANNELS, load_raster_config, rasterize_layouts
+    config = load_raster_config()
+    fig = plot_raster(rasterize_layouts([good_layout], catalog, rules, config)[0], config.canvas)
+    titles = [ax.get_title(loc="left") for ax in fig.axes if ax.get_title(loc="left")]
+    assert titles == [f"{c}: {name}" for c, name in enumerate(CHANNELS)]

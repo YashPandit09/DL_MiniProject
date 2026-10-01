@@ -29,10 +29,15 @@ reachability:                # H4 (Tech Spec 3.3)
 feasibility:                 # pre-check (Tech Spec 3.5)
   f_max: 0.45                # (spec, start) recalibrate from the generator's acceptance rate (T15)
 
-quality:                     # soft quality score S (Tech Spec 3.4), used from T09
+quality:                     # soft quality score S (Tech Spec 3.4)
   weights: {align: 0.30, relations: 0.30, circulation: 0.25, space: 0.15}  # (spec)
   wall_distance: 0.10        # (spec) "against a wall" means within this distance of it
   space_band: [0.15, 0.40]   # (spec) best range of furniture area / room area
+  space_falloff: 0.15        # (T09) the space score falls linearly to 0 this far outside the
+                             # band, so it is 0 for an empty room and at 55% coverage
+  relation_falloff: 0.5      # (T09) a relation scores 1 inside its range and falls linearly to
+                             # 0 this far outside it; a relation whose items are not all
+                             # present is skipped
 
 rooms:
   living_room:

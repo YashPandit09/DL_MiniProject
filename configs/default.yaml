@@ -1,3 +1,8 @@
 # Master configuration. Every run saves the config it used next to its outputs
 # (Tech Spec Section 9.2). Sections are added task by task.
 seed: 0
+
+raster:                # input images of the CNN evaluator (Tech Spec 4.2)
+  canvas: 8.0          # (spec) meters per side of the fixed canvas; the room sits at its origin
+  pixels: 128          # (spec) pixels per side, so 0.0625 m per pixel
+  front_strip: 0.10    # (T07) thickness of the band marking an item's front, about 1.6 pixels

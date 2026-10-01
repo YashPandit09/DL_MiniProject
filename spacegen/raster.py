@@ -1,0 +1,126 @@
+"""Layouts as 4-channel images, the input of the CNN evaluator (T07, Tech Spec 4.2).
+
+Each pixel holds the exact fraction of its area that a shape covers, so moving an item by
+a centimetre changes the pixel values. The canvas has a fixed physical size with the room
+at its origin, so a meter spans the same number of pixels in every room. Channels:
+
+  0  room        coverage of the room rectangle
+  1  furniture   coverage summed over the items, so an overlap shows as values above 1
+  2  fronts      a thin band inside each item's front face; symmetric items get a band on
+                 every equivalent face, so their arbitrary stored rotation does not show
+  3  door zone   coverage of the door clearance zone
+
+Pixel [i, j] covers x in [i s, (i+1) s] and y in [j s, (j+1) s], with s = canvas / pixels.
+
+An axis-aligned box covers a pixel by (its overlap with the pixel's column) times (its
+overlap with the pixel's row), so each channel is a sum of outer products of 1-D overlaps:
+one batched matrix product on the GPU. It is also piecewise linear in the item positions,
+so gradients reach the positions (needed for the surrogate variant M3).
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Sequence
+
+import numpy as np
+import torch
+
+from spacegen import geometry
+from spacegen.catalog import RoomCatalog
+from spacegen.config import DEFAULT_CONFIG, load_config
+from spacegen.layout import Layout
+from spacegen.rules import Rules, door_geometry
+
+CHANNELS = ("room", "furniture", "fronts", "door zone")
+
+
+@dataclass(frozen=True)
+class RasterConfig:
+    canvas: float  # meters per side
+    pixels: int  # pixels per side
+    front_strip: float  # thickness of the band marking an item's front (m)
+
+    @property
+    def pixel(self) -> float:
+        """Pixel size in meters."""
+        return self.canvas / self.pixels
+
+
+def load_raster_config(path: Path = DEFAULT_CONFIG) -> RasterConfig:
+    return RasterConfig(**load_config(path)["raster"])
+
+
+def rasterize(center: torch.Tensor, size: torch.Tensor, rot: torch.Tensor, mask: torch.Tensor,
+              room: torch.Tensor, zone_center: torch.Tensor, zone_size: torch.Tensor,
+              rot_symmetry: torch.Tensor, config: RasterConfig) -> torch.Tensor:
+    """(B, 4, P, P) rasters of B layouts with K slots each.
+
+    center, size: (B, K, 2) item centres and catalog sizes (w, d); rot: (B, K) rotation
+    classes; mask: (B, K) present items; room: (B, 2) as (W, D); zone_center, zone_size:
+    (B, 2) door clearance zones; rot_symmetry: (K,) per slot.
+    """
+    edges = torch.arange(config.pixels + 1, dtype=center.dtype, device=center.device) * config.pixel
+    eff = geometry.effective_size(size, rot)
+    present = mask.to(center.dtype)
+    one = torch.ones_like(room[:, :1])  # weight of a single box per layout
+
+    def cover(lo, hi, weight):
+        return _coverage(lo, hi, weight, edges, config.pixel)
+
+    channels = [
+        cover(torch.zeros_like(room)[:, None], room[:, None], one),
+        cover(center - eff / 2, center + eff / 2, present),
+        cover(*_front_strips(center, eff, rot, present, rot_symmetry, config.front_strip)),
+        cover((zone_center - zone_size / 2)[:, None], (zone_center + zone_size / 2)[:, None], one),
+    ]
+    return torch.stack(channels, dim=1)
+
+
+def rasterize_layouts(layouts: Sequence[Layout], catalog: RoomCatalog, rules: Rules, config: RasterConfig,
+                      device: str | torch.device = "cpu", dtype: torch.dtype = torch.float32) -> torch.Tensor:
+    """Rasters of Layout objects, as (len(layouts), 4, P, P) on `device`."""
+    if any(layout.room_type != catalog.room_type for layout in layouts):
+        raise ValueError(f"every layout must be a {catalog.room_type}")
+
+    def stack(values, kind=dtype):
+        return torch.as_tensor(np.stack(values), dtype=kind, device=device)
+
+    zones = [door_geometry(l.width, l.depth, l.door_wall, l.door_offset, rules.door) for l in layouts]
+    return rasterize(
+        stack([l.center for l in layouts]), stack([l.size for l in layouts]),
+        stack([l.rot for l in layouts], torch.long), stack([l.mask for l in layouts], torch.bool),
+        stack([l.room for l in layouts]), stack([z.zone_center for z in zones]),
+        stack([z.zone_size for z in zones]),
+        torch.tensor([s.rot_symmetry for s in catalog.slots], device=device), config)
+
+
+def _coverage(lo: torch.Tensor, hi: torch.Tensor, weight: torch.Tensor, edges: torch.Tensor,
+              pixel: float) -> torch.Tensor:
+    """Weighted sum of box coverages: lo, hi (B, N, 2), weight (B, N) -> (B, P, P)."""
+    def along(axis: int) -> torch.Tensor:  # (B, N, P) overlap of each box with each pixel column or row
+        overlap = torch.minimum(hi[..., axis, None], edges[1:]) - torch.maximum(lo[..., axis, None], edges[:-1])
+        return overlap.clamp(min=0) / pixel
+
+    return torch.einsum("bni,bnj->bij", along(0) * weight[..., None], along(1))
+
+
+def _front_strips(center: torch.Tensor, eff: torch.Tensor, rot: torch.Tensor, present: torch.Tensor,
+                  rot_symmetry: torch.Tensor, thickness: float):
+    """Bands inside the four sides of every item, weighted 1 on faces equivalent to the front.
+
+    Returns lo, hi (B, 4K, 2) and weight (B, 4K).
+    """
+    side = torch.arange(4, device=rot.device)
+    faces = (rot[..., None] + side) % 4  # (B, K, 4) direction of each side, starting with the front
+    step = 4 // rot_symmetry.to(rot.device)  # equivalent faces are every `step` sides apart
+    equivalent = (side % step[:, None] == 0).to(center.dtype)  # (K, 4)
+    looks_north_south = faces % 2 == 0
+    eff4 = eff[:, :, None, :].expand(-1, -1, 4, -1)
+    depth = torch.where(looks_north_south, eff4[..., 1], eff4[..., 0])  # extent along the face's direction
+    length = torch.where(looks_north_south, eff4[..., 0], eff4[..., 1])  # extent along the face itself
+    band = torch.clamp(depth, max=thickness)
+    middle = center[:, :, None, :] + geometry.facing_vector(faces, center) * ((depth - band) / 2)[..., None]
+    size = torch.where(looks_north_south[..., None], torch.stack([length, band], -1), torch.stack([band, length], -1))
+    weight = present[:, :, None] * equivalent
+    return (middle - size / 2).flatten(1, 2), (middle + size / 2).flatten(1, 2), weight.flatten(1, 2)

@@ -43,6 +43,7 @@ def _broken_rules_file(tmp_path, change):
     (lambda r: r["rooms"]["living_room"]["relations"].update(coffee_table_gap=[0.5, 0.35]), "low < high"),
     (lambda r: r["hard_checks"].pop("max_pair_overlap"), "missing or unexpected"),
     (lambda r: r["door"].update(colour="red"), "missing or unexpected"),
+    (lambda r: r["quality"].update(relation_falloff=0), "must be positive"),
 ])
 def test_broken_rules_files_fail_loudly(tmp_path, change, message):
     with pytest.raises(RulesError, match=message):

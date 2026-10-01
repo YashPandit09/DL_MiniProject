@@ -11,7 +11,7 @@ from pathlib import Path
 
 import numpy as np
 from matplotlib.axes import Axes
-from matplotlib.colors import ListedColormap
+from matplotlib.colors import LinearSegmentedColormap, ListedColormap
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch, Rectangle
@@ -33,6 +33,11 @@ FURNITURE_FILL = "#cde2fb"
 FURNITURE_EDGE = "#2a78d6"
 FRONT_EDGE = "#1c5cab"
 CRITICAL = "#d03b3b"
+
+# Sequential blue ramp (steps 100 to 700 of the reference palette), starting at the surface
+# so that zero coverage disappears into the background.
+COVERAGE = LinearSegmentedColormap.from_list("coverage", [
+    SURFACE, "#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"])
 
 _WALL_ENDS = {"S": ((0, 0), (1, 0)), "E": ((1, 0), (1, 1)), "N": ((1, 1), (0, 1)), "W": ((0, 1), (0, 0))}
 
@@ -95,6 +100,29 @@ def draw_layout(ax: Axes, layout: Layout, catalog: RoomCatalog, rules: Rules,
     for spine in ax.spines.values():
         spine.set_visible(False)
     return result
+
+
+def plot_raster(raster, canvas: float, title: str | None = None) -> Figure:
+    """The four channels of one evaluator input (T07) side by side, in meters on the canvas."""
+    from spacegen.raster import CHANNELS
+
+    image = np.asarray(raster.detach().cpu() if hasattr(raster, "detach") else raster)
+    fig = Figure(figsize=(12, 3.6), dpi=150, facecolor=SURFACE, layout="constrained")
+    for c, (ax, name) in enumerate(zip(fig.subplots(1, len(CHANNELS)), CHANNELS)):
+        channel = image[c].T  # rows are y, so the picture matches the floor plan
+        shown = ax.imshow(channel, origin="lower", extent=(0, canvas, 0, canvas), cmap=COVERAGE,
+                          vmin=0, vmax=max(1.0, float(channel.max())), interpolation="nearest")
+        ax.set_title(f"{c}: {name}", fontsize=8, color=INK, loc="left")
+        ax.tick_params(labelsize=6, colors=INK_MUTED, length=2)
+        for spine in ax.spines.values():
+            spine.set_color(INK_MUTED)
+            spine.set_linewidth(0.5)
+        bar = fig.colorbar(shown, ax=ax, shrink=0.8)
+        bar.ax.tick_params(labelsize=6, colors=INK_MUTED)
+        bar.outline.set_visible(False)
+    if title:
+        fig.suptitle(title, x=0.01, ha="left", fontsize=9, color=INK)
+    return fig
 
 
 def _draw_walls(ax: Axes, layout: Layout, door, door_width: float) -> None:

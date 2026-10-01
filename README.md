@@ -63,4 +63,6 @@ does the same thing.
 - [x] T04 Rules file: every threshold in `configs/rules.yaml`, each marked as an assumption
 - [x] T05 Door geometry and hard checks H1 to H3
 - [x] T06 2D floor plans and the layout JSON format
+- [x] T07 Evaluator input: 4-channel fractional-coverage rasters, built on the GPU
 - [x] T08 Reachability (H4)
+- [x] T09 Quality score (alignment, relations, circulation, space)

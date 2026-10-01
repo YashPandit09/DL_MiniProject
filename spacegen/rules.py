@@ -65,6 +65,8 @@ class QualityRules:
     weights: dict[str, float]
     wall_distance: float
     space_band: tuple[float, float]
+    space_falloff: float
+    relation_falloff: float
 
 
 @dataclass(frozen=True)
@@ -118,6 +120,8 @@ def _check(rules: Rules) -> None:
     if set(weights) != _QUALITY_TERMS or min(weights.values()) < 0 or abs(sum(weights.values()) - 1) > 1e-9:
         raise RulesError(f"quality.weights needs the terms {sorted(_QUALITY_TERMS)}, non-negative, summing to 1")
     _check_range("quality.space_band", rules.quality.space_band)
+    if min(rules.quality.space_falloff, rules.quality.relation_falloff) <= 0:
+        raise RulesError("quality.space_falloff and quality.relation_falloff must be positive")
     for name, room in rules.rooms.items():
         _check_range(f"{name}.width", room.width)
         _check_range(f"{name}.depth", room.depth)
@@ -197,8 +201,12 @@ class CheckResult:
         return self.in_room and self.no_overlap and self.door_clear and self.reachable
 
 
-def check_layout(layout: Layout, catalog: RoomCatalog, rules: Rules) -> CheckResult:
-    """Run the hard checks H1 to H4 (Tech Spec 3.1) on the present items."""
+def check_layout(layout: Layout, catalog: RoomCatalog, rules: Rules,
+                 reach: Reachability | None = None) -> CheckResult:
+    """Run the hard checks H1 to H4 (Tech Spec 3.1) on the present items.
+
+    Pass `reach` if reachability() was already computed for this layout, to reuse it.
+    """
     _check_room_type(layout, catalog)
     limits = rules.hard_checks
     present, eff = layout.mask, layout.eff_size
@@ -213,7 +221,8 @@ def check_layout(layout: Layout, catalog: RoomCatalog, rules: Rules) -> CheckRes
     zone_area = geometry.overlap_area(layout.center, eff, door.zone_center, door.zone_size)
     in_zone = np.flatnonzero(present & (zone_area > limits.door_overlap_tol))
 
-    reach = reachability(layout, catalog, rules)
+    if reach is None:
+        reach = reachability(layout, catalog, rules)
     need_access = sum(catalog.slots[k].needs_access for k in np.flatnonzero(present))
 
     return CheckResult(
@@ -238,6 +247,7 @@ class Reachability:
 
     xs: np.ndarray  # (nx,) cell centres along x
     ys: np.ndarray  # (ny,) cell centres along y
+    free: np.ndarray  # (nx, ny) cell centre outside every footprint (free floor)
     passable: np.ndarray  # (nx, ny) at least min_path_width / 2 from every footprint and wall
     reached: np.ndarray  # (nx, ny) passable and connected to the door
     unreachable: tuple[int, ...]  # slots that need access but cannot be walked up to
@@ -274,8 +284,8 @@ def reachability(layout: Layout, catalog: RoomCatalog, rules: Rules) -> Reachabi
     px, py = np.meshgrid(xs, ys, indexing="ij")
 
     door = door_geometry(layout.width, layout.depth, layout.door_wall, layout.door_offset, rules.door)
-    clearance = np.minimum(_distance_to_walls(px, py, layout, door, rules.door.width),
-                           _distance_to_items(px, py, layout))
+    to_items = _distance_to_items(px, py, layout)
+    clearance = np.minimum(_distance_to_walls(px, py, layout, door, rules.door.width), to_items)
     passable = clearance >= params.min_path_width / 2
 
     labels, _ = ndimage.label(passable)  # 4-connectivity, the default in 2D
@@ -294,7 +304,7 @@ def reachability(layout: Layout, catalog: RoomCatalog, rules: Rules) -> Reachabi
         lines = _access_lines(layout.center[k], eff[k], int(layout.rot[k]), slot.rot_symmetry, params.access_offset)
         if not any(_near_line(reached_points, *line, params.access_tolerance) for line in lines):
             unreachable.append(int(k))
-    return Reachability(xs, ys, passable, reached, tuple(unreachable))
+    return Reachability(xs, ys, to_items > 0, passable, reached, tuple(unreachable))
 
 
 def _distance_to_items(px: np.ndarray, py: np.ndarray, layout: Layout) -> np.ndarray:
