@@ -6,3 +6,16 @@ raster:                # input images of the CNN evaluator (Tech Spec 4.2)
   canvas: 8.0          # (spec) meters per side of the fixed canvas; the room sits at its origin
   pixels: 128          # (spec) pixels per side, so 0.0625 m per pixel
   front_strip: 0.10    # (T07) thickness of the band marking an item's front, about 1.6 pixels
+
+generator:             # Set A layouts and the G0 reference (T11, Tech Spec 2.4). Room sizes and
+                       # the spacing ranges between items come from rules.yaml.
+  attempts: 20         # (T11) placements tried per room; a room that fails them all is dropped
+  wall_gap: 0.05       # (T11) an item placed against a wall stands 0 to 5 cm from it
+  jitter: 0.05         # (spec) sigma of the position jitter (m)
+  walkway: 0.75        # (T11) style (b): clear floor behind the floating sofa, above the 0.6 m
+                       # path width so the walkway counts as passable whatever the grid alignment
+  armchair_gap: [0.4, 0.9]  # (T11) armchair to the end of the coffee table (the relation allows 1.2)
+  shelf_clearance: 0.6 # (T11) clear floor kept in front of the bookshelf
+  optional_items:      # (T11) each optional item is in the room with a probability that rises
+    area: [10.5, 30.0] # linearly with floor area (m^2) between these two points
+    probability: [0.25, 0.75]

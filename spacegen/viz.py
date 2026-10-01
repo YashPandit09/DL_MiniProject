@@ -125,6 +125,39 @@ def plot_raster(raster, canvas: float, title: str | None = None) -> Figure:
     return fig
 
 
+def plot_rejection(attempts, cap: int) -> Figure:
+    """How often the generator rejects a placement attempt, by room area and by item count (T11).
+
+    `attempts` is the attempt log of generator.generate_set_a(); `cap` the attempts per room.
+    """
+    from spacegen.generator import rejection_summary
+
+    fig = Figure(figsize=(10, 4.1), dpi=150, facecolor=SURFACE, layout="constrained")
+    axes = fig.subplots(1, 2, sharey=True, width_ratios=[3, 2])
+    for ax, by, xlabel in zip(axes, ("area", "items"), ("room floor area (m²)", "items in the room")):
+        table = rejection_summary(attempts, by)
+        groups = [f"{g.left:.0f}–{g.right:.0f}" if by == "area" else str(g) for g in table.index]
+        labels = [f"{g}\n{n}" for g, n in zip(groups, table["attempts"])]  # attempts under each group
+        bars = ax.bar(labels, 100 * table["rejected"], width=0.62, color=FURNITURE_EDGE)
+        ax.bar_label(bars, labels=[f"{r:.0%}" for r in table["rejected"]], padding=2, fontsize=6.5,
+                     color=INK_SECONDARY)
+        ax.set_xlabel(f"{xlabel}, with the number of attempts below", fontsize=7.5, color=INK_SECONDARY)
+        ax.set_facecolor(SURFACE)
+        ax.set_ylim(0, 100)
+        ax.tick_params(labelsize=7, colors=INK_MUTED, length=2)
+        for name, spine in ax.spines.items():
+            spine.set_visible(name == "bottom")
+            spine.set_color(INK_MUTED)
+    axes[1].tick_params(left=False)
+    axes[0].set_ylabel("attempts rejected (%)", fontsize=7.5, color=INK_SECONDARY)
+    rooms = attempts["room"].nunique()
+    dropped = rooms - attempts.loc[attempts["outcome"] == "valid", "room"].nunique()
+    fig.suptitle("Generator attempts rejected: no position left for the furniture, or a hard check failed\n"
+                 f"{rooms} rooms, {len(attempts)} attempts; {dropped} of {rooms} rooms dropped after "
+                 f"{cap} failed attempts", x=0.01, ha="left", fontsize=9, color=INK, linespacing=1.4)
+    return fig
+
+
 def _draw_walls(ax: Axes, layout: Layout, door, door_width: float) -> None:
     room = layout.room
     for wall, (start, end) in _WALL_ENDS.items():

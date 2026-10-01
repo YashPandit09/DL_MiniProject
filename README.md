@@ -42,6 +42,7 @@ does the same thing.
 |---|---|
 | `python run.py test` | Run the unit tests (extra arguments go to pytest, for example `python run.py test -k geometry`) |
 | `python run.py check-env` | Versions, GPU and memory, determinism check, evaluator training speed |
+| `python run.py generator-report` | Generate 2,000 Set A layouts, print acceptance, styles and quality, and plot the share of attempts rejected by room area and item count (`reports/figures/generator_rejection.png`; `--layouts N` and `--seed S` change the run) |
 | `python -m spacegen.viz layout.json layout.png` | Draw a layout JSON as a floor plan with its hard-check results |
 
 ## Reproducibility
@@ -67,3 +68,6 @@ does the same thing.
 - [x] T08 Reachability (H4)
 - [x] T09 Quality score (alignment, relations, circulation, space)
 - [x] T10 Layout vectors (condition c: 25 values, target x: 36), canonical form, dataset tensors on the GPU
+- [x] T11 Set A generator with all three living-room styles: (a) wall sofa, (b) floating sofa,
+  (c) L-shape (styles (b) and (c) moved here from T13, which keeps the Set B perturbations);
+  furniture that grows with room area; rejection report

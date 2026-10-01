@@ -20,13 +20,17 @@ TASKS: dict[str, tuple[str, list[list[str]]]] = {
         "versions, GPU and VRAM, determinism and evaluator-sized training speed",
         [[PY, "-m", "spacegen.env_check"]],
     ),
+    "generator-report": (
+        "generate Set A layouts and plot how often attempts are rejected",
+        [[PY, "-m", "spacegen.generator"]],
+    ),
 }
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description=__doc__.splitlines()[0],
-        epilog="tasks:\n" + "\n".join(f"  {name:10s} {help}" for name, (help, _) in TASKS.items()),
+        epilog="tasks:\n" + "\n".join(f"  {name:17s} {help}" for name, (help, _) in TASKS.items()),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("task", choices=TASKS)

@@ -3,9 +3,11 @@ import json
 
 from matplotlib.colors import to_hex
 
+import pandas as pd
+
 from tests.layouts import ARMCHAIR, SOFA
 from spacegen.layout import layout_to_dict
-from spacegen.viz import CRITICAL, main, plot_layout, plot_raster
+from spacegen.viz import CRITICAL, main, plot_layout, plot_raster, plot_rejection
 
 
 def _labels(fig):
@@ -45,3 +47,13 @@ def test_raster_plot_has_one_panel_per_channel(good_layout, catalog, rules):
     fig = plot_raster(rasterize_layouts([good_layout], catalog, rules, config)[0], config.canvas)
     titles = [ax.get_title(loc="left") for ax in fig.axes if ax.get_title(loc="left")]
     assert titles == [f"{c}: {name}" for c, name in enumerate(CHANNELS)]
+
+
+def test_rejection_plot_shows_the_rejected_share_per_group():
+    attempts = pd.DataFrame({"room": [0, 0, 1, 2], "area": [12.0, 12.0, 30.0, 30.0], "items": [6, 6, 3, 4],
+                             "outcome": ["invalid", "valid", "valid", "no position"]})
+    fig = plot_rejection(attempts, cap=20)
+    by_area, by_items = fig.axes[:2]
+    assert [round(bar.get_height()) for bar in by_area.patches] == [50, 50]  # 12-16 and 28-32 m^2
+    assert [round(bar.get_height()) for bar in by_items.patches] == [0, 100, 50]  # 3, 4 and 6 items
+    assert "1 of 3 rooms dropped after 20 failed attempts" in fig.get_suptitle()
