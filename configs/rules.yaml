@@ -1,0 +1,45 @@
+# Layout rules and thresholds (Tech Spec Sections 1, 2.2 and 3).
+#
+# Every number here is our own design assumption, not an official standard (PRD A7), and
+# must be presented as one in the report and the viva. Values taken from the Tech Spec are
+# marked (spec); values chosen in task T04 are marked (T04). "start" means a starting point
+# to be tuned. Lengths are in meters, areas in m^2.
+
+door:
+  width: 0.9                 # (spec)
+  clearance_depth: 0.9       # (spec) how far the clearance zone reaches into the room
+  corner_margin: 0.65        # (spec) m_d: the door centre stays this far from a corner
+                             # (half the door width plus 0.2 m)
+
+hard_checks:
+  in_room_tol: 1.0e-3        # (spec) H1: a footprint may stick out of the room by this much
+  max_pair_overlap: 0.005    # (spec, start) H2: largest allowed intersection of two footprints
+  door_overlap_tol: 1.0e-4   # (spec) H3: largest allowed intersection with the clearance zone
+
+reachability:                # H4 (Tech Spec 3.3), used from T08
+  cell: 0.10                 # (spec) grid cell size
+  min_path_width: 0.6        # (spec) a walkable cell is at least half of this from obstacles
+  access_offset: 0.35        # (spec) access point distance in front of an item's front face
+  access_tolerance: 0.3      # (spec) an access point counts if this close to a reached cell
+
+feasibility:                 # pre-check (Tech Spec 3.5)
+  f_max: 0.45                # (spec, start) recalibrate from the generator's acceptance rate (T15)
+
+quality:                     # soft quality score S (Tech Spec 3.4), used from T09
+  weights: {align: 0.30, relations: 0.30, circulation: 0.25, space: 0.15}  # (spec)
+  wall_distance: 0.10        # (spec) "against a wall" means within this distance of it
+  space_band: [0.15, 0.40]   # (spec) best range of furniture area / room area
+
+rooms:
+  living_room:
+    width: [3.5, 7.0]        # (spec) sampling range of W
+    depth: [3.0, 6.0]        # (spec) sampling range of D
+    against_wall: [tv_unit, bookshelf]  # (T04) back to a wall, facing into the room. The
+                             # sofa is exempt because layout style (b) floats it in the room.
+    relations:               # (T04) used by the quality score (T09) and the generator (T11)
+      sofa_tv_distance: [1.5, 3.5]    # sofa and TV unit face each other; measured front face
+                                      # to front face. A 3.0 m deep room leaves about 1.7 m.
+      coffee_table_gap: [0.35, 0.50]  # between sofa and TV; gap from the sofa's front face
+      side_table_max_gap: 0.15        # gap to the nearer end (short side) of the sofa
+      armchair_max_gap: 1.2           # gap between the armchair's and the coffee table's
+                                      # footprints; the armchair stands at 90 degrees to the sofa

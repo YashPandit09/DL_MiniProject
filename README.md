@@ -59,3 +59,5 @@ does the same thing.
 - [x] T01 Repository, seed helper, machine check
 - [x] T02 Geometry
 - [x] T03 Catalog (living room; the bedroom is P2)
+- [x] T04 Rules file: every threshold in `configs/rules.yaml`, each marked as an assumption
+- [x] T05 Door geometry and hard checks H1 to H3
