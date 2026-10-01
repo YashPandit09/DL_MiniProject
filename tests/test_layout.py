@@ -1,9 +1,12 @@
-"""Layout tests: building layouts from the catalog and changing one item."""
+"""Layout tests: building layouts from the catalog, changing one item, and the layout JSON."""
+import copy
+import json
+
 import numpy as np
 import pytest
 
-from conftest import ARMCHAIR, BOOKSHELF, SIDE_TABLE, SOFA
-from spacegen.layout import make_layout
+from tests.layouts import ARMCHAIR, BOOKSHELF, SIDE_TABLE, SOFA
+from spacegen.layout import layout_from_dict, layout_to_dict, make_layout
 
 
 def test_make_layout_fills_one_row_per_slot(good_layout):
@@ -47,3 +50,41 @@ def test_with_item_and_without_return_changed_copies(good_layout):
     assert not removed.mask[SIDE_TABLE] and good_layout.mask[SIDE_TABLE]
     with pytest.raises(ValueError):
         removed.with_item(SIDE_TABLE, center=(1.0, 1.0))
+
+
+# --------------------------------------------------------------------------- layout JSON
+
+def test_layout_json_round_trip(good_layout, catalog, rules):
+    data = layout_to_dict(good_layout, catalog, rules.door.width, metrics={"valid": True})
+    data = json.loads(json.dumps(data))  # through real JSON text
+    assert data["room"] == {"type": "living_room", "width": 5.0, "depth": 4.0}
+    assert data["door"] == {"wall": "W", "offset": 0.5, "width": 0.9}
+    assert data["items"][SOFA] == {"slot": 0, "id": "sofa_3seater", "w": 2.1, "d": 0.9, "h": 0.85,
+                                   "x": 2.8, "y": 3.55, "rotation": 2, "price": 28000}
+    assert data["metrics"] == {"valid": True}
+
+    back = layout_from_dict(data, catalog)
+    for field in ("center", "rot", "size", "mask"):
+        np.testing.assert_array_equal(getattr(back, field), getattr(good_layout, field))
+    assert back.variant_ids == good_layout.variant_ids
+    assert (back.width, back.depth, back.door_wall, back.door_offset) == (5.0, 4.0, "W", 0.5)
+
+
+def _wrong_room(data):
+    data["room"]["type"] = "bedroom"
+
+
+def _wrong_size(data):
+    data["items"][0]["w"] = 2.5
+
+
+def _repeated_slot(data):
+    data["items"].append(copy.deepcopy(data["items"][0]))
+
+
+@pytest.mark.parametrize("break_json", [_wrong_room, _wrong_size, _repeated_slot])
+def test_layout_json_with_mistakes_is_rejected(good_layout, catalog, rules, break_json):
+    data = layout_to_dict(good_layout, catalog, rules.door.width)
+    break_json(data)
+    with pytest.raises(ValueError):
+        layout_from_dict(data, catalog)

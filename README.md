@@ -42,6 +42,7 @@ does the same thing.
 |---|---|
 | `python run.py test` | Run the unit tests (extra arguments go to pytest, for example `python run.py test -k geometry`) |
 | `python run.py check-env` | Versions, GPU and memory, determinism check, evaluator training speed |
+| `python -m spacegen.viz layout.json layout.png` | Draw a layout JSON as a floor plan with its hard-check results |
 
 ## Reproducibility
 
@@ -61,3 +62,5 @@ does the same thing.
 - [x] T03 Catalog (living room; the bedroom is P2)
 - [x] T04 Rules file: every threshold in `configs/rules.yaml`, each marked as an assumption
 - [x] T05 Door geometry and hard checks H1 to H3
+- [x] T06 2D floor plans and the layout JSON format
+- [x] T08 Reachability (H4)

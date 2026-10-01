@@ -16,11 +16,15 @@ hard_checks:
   max_pair_overlap: 0.005    # (spec, start) H2: largest allowed intersection of two footprints
   door_overlap_tol: 1.0e-4   # (spec) H3: largest allowed intersection with the clearance zone
 
-reachability:                # H4 (Tech Spec 3.3), used from T08
-  cell: 0.10                 # (spec) grid cell size
+reachability:                # H4 (Tech Spec 3.3)
+  cell: 0.10                 # (spec) grid cell size. Cells are sampled at their centres, so a
+                             # corridor narrower than min_path_width always fails, one at least
+                             # min_path_width + cell wide always passes, and one in between
+                             # depends on how it lines up with the grid.
   min_path_width: 0.6        # (spec) a walkable cell is at least half of this from obstacles
-  access_offset: 0.35        # (spec) access point distance in front of an item's front face
-  access_tolerance: 0.3      # (spec) an access point counts if this close to a reached cell
+  access_offset: 0.35        # (spec) the access line runs this far in front of the front face
+  access_tolerance: 0.3      # (spec) an item counts as reached if a reached cell is this close
+                             # to its access line (the whole face, not just its middle: T08)
 
 feasibility:                 # pre-check (Tech Spec 3.5)
   f_max: 0.45                # (spec, start) recalibrate from the generator's acceptance rate (T15)

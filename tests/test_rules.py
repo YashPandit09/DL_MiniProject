@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 import yaml
 
-from conftest import ARMCHAIR, BOOKSHELF, SIDE_TABLE, SOFA
+from tests.layouts import ARMCHAIR, BOOKSHELF, SIDE_TABLE, SOFA
 from spacegen.geometry import box_bounds
 from spacegen.layout import make_layout
 from spacegen.rules import (RULES_PATH, WALLS, DoorRules, RulesError, check_layout, door_geometry,
@@ -97,31 +97,33 @@ def test_door_rejects_bad_input(rules, wall, offset, depth):
 
 # --------------------------------------------------------------------------- hard checks
 
-def test_hand_built_living_room_passes(good_layout, rules):
-    result = check_layout(good_layout, rules)
+def test_hand_built_living_room_passes(good_layout, catalog, rules):
+    result = check_layout(good_layout, catalog, rules)
     assert result.valid
-    assert (result.items_out_of_room, result.overlapping_pairs, result.items_in_door_zone) == ((), (), ())
+    assert (result.items_out_of_room, result.overlapping_pairs, result.items_in_door_zone,
+            result.unreachable_items) == ((), (), (), ())
+    assert result.reachability_ratio == 1.0
 
 
 @pytest.mark.parametrize("x, passes", [(4.8505, True), (4.9, False)])  # 0.5 mm and 50 mm outside
-def test_h1_allows_only_the_tolerance(good_layout, rules, x, passes):
-    result = check_layout(good_layout.with_item(BOOKSHELF, center=(x, 1.5)), rules)
+def test_h1_allows_only_the_tolerance(good_layout, catalog, rules, x, passes):
+    result = check_layout(good_layout.with_item(BOOKSHELF, center=(x, 1.5)), catalog, rules)
     assert result.in_room == passes
     assert result.items_out_of_room == (() if passes else (BOOKSHELF,))
 
 
 @pytest.mark.parametrize("area, passes", [(0.004, True), (0.006, False)])
-def test_h2_allows_only_a_small_overlap(good_layout, rules, area, passes):
+def test_h2_allows_only_a_small_overlap(good_layout, catalog, rules, area, passes):
     # The side table's y-range lies inside the sofa's, so the overlap is 0.45 m times its x-overlap.
     x = 1.75 - 0.225 + area / 0.45
-    result = check_layout(good_layout.with_item(SIDE_TABLE, center=(x, 3.775)), rules)
+    result = check_layout(good_layout.with_item(SIDE_TABLE, center=(x, 3.775)), catalog, rules)
     assert result.no_overlap == passes
     assert result.overlapping_pairs == (() if passes else ((SOFA, SIDE_TABLE),))
 
 
 @pytest.mark.parametrize("x, passes", [(1.3, True), (0.8, False)])  # touching the zone, inside it
-def test_h3_keeps_the_door_zone_clear(good_layout, rules, x, passes):
-    result = check_layout(good_layout.with_item(ARMCHAIR, center=(x, 2.0)), rules)
+def test_h3_keeps_the_door_zone_clear(good_layout, catalog, rules, x, passes):
+    result = check_layout(good_layout.with_item(ARMCHAIR, center=(x, 2.0)), catalog, rules)
     assert result.door_clear == passes
     assert result.items_in_door_zone == (() if passes else (ARMCHAIR,))
     assert result.in_room and result.no_overlap
@@ -132,10 +134,10 @@ def test_h3_works_for_every_door_wall(catalog, rules, wall):
     door = door_geometry(5.0, 4.0, wall, 0.5, rules.door)
     x, y = door.zone_center
     layout = make_layout(catalog, 5.0, 4.0, wall, 0.5, {"side_table": (x, y, 0)})
-    assert check_layout(layout, rules).items_in_door_zone == (SIDE_TABLE,)
+    assert check_layout(layout, catalog, rules).items_in_door_zone == (SIDE_TABLE,)
 
 
-def test_absent_items_are_ignored(good_layout, rules):
+def test_absent_items_are_ignored(good_layout, catalog, rules):
     blocking = good_layout.with_item(ARMCHAIR, center=(0.8, 2.0))
-    assert not check_layout(blocking, rules).valid
-    assert check_layout(blocking.without(ARMCHAIR), rules).valid
+    assert not check_layout(blocking, catalog, rules).valid
+    assert check_layout(blocking.without(ARMCHAIR), catalog, rules).valid

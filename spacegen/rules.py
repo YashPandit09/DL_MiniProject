@@ -1,7 +1,7 @@
-"""Rule engine (Tech Spec Section 3): the rules config, door geometry and hard checks H1 to H3.
+"""Rule engine (Tech Spec Section 3): the rules config, door geometry and hard checks H1 to H4.
 
 configs/rules.yaml holds every threshold; all of them are our own design assumptions.
-Reachability (H4) is added in T08 and the quality score in T09.
+The quality score is added in T09.
 """
 from __future__ import annotations
 
@@ -10,8 +10,10 @@ from pathlib import Path
 
 import numpy as np
 import yaml
+from scipy import ndimage
 
 from spacegen import geometry
+from spacegen.catalog import RoomCatalog
 from spacegen.layout import Layout
 from spacegen.paths import CONFIG_DIR
 
@@ -170,6 +172,8 @@ class CheckResult:
     items_out_of_room: tuple[int, ...]  # H1
     overlapping_pairs: tuple[tuple[int, int], ...]  # H2
     items_in_door_zone: tuple[int, ...]  # H3
+    unreachable_items: tuple[int, ...]  # H4
+    reachability_ratio: float  # reachable items / items that need access (Tech Spec 7)
 
     @property
     def in_room(self) -> bool:
@@ -184,13 +188,18 @@ class CheckResult:
         return not self.items_in_door_zone
 
     @property
+    def reachable(self) -> bool:
+        return not self.unreachable_items
+
+    @property
     def valid(self) -> bool:
-        """H1 to H3 hold (reachability, H4, joins in T08)."""
-        return self.in_room and self.no_overlap and self.door_clear
+        """All of H1 to H4 hold (H5, the budget, is checked when variants are chosen)."""
+        return self.in_room and self.no_overlap and self.door_clear and self.reachable
 
 
-def check_layout(layout: Layout, rules: Rules) -> CheckResult:
-    """Run the hard checks H1 to H3 (Tech Spec 3.1) on the present items."""
+def check_layout(layout: Layout, catalog: RoomCatalog, rules: Rules) -> CheckResult:
+    """Run the hard checks H1 to H4 (Tech Spec 3.1) on the present items."""
+    _check_room_type(layout, catalog)
     limits = rules.hard_checks
     present, eff = layout.mask, layout.eff_size
 
@@ -204,8 +213,121 @@ def check_layout(layout: Layout, rules: Rules) -> CheckResult:
     zone_area = geometry.overlap_area(layout.center, eff, door.zone_center, door.zone_size)
     in_zone = np.flatnonzero(present & (zone_area > limits.door_overlap_tol))
 
+    reach = reachability(layout, catalog, rules)
+    need_access = sum(catalog.slots[k].needs_access for k in np.flatnonzero(present))
+
     return CheckResult(
         items_out_of_room=tuple(out_of_room.tolist()),
         overlapping_pairs=tuple(zip(first.tolist(), second.tolist())),
         items_in_door_zone=tuple(in_zone.tolist()),
+        unreachable_items=reach.unreachable,
+        reachability_ratio=1.0 - len(reach.unreachable) / need_access if need_access else 1.0,
     )
+
+
+def _check_room_type(layout: Layout, catalog: RoomCatalog) -> None:
+    if layout.room_type != catalog.room_type:
+        raise ValueError(f"a {layout.room_type} layout needs the {layout.room_type} catalog, got {catalog.room_type}")
+
+
+# --------------------------------------------------------------------------- reachability (H4)
+
+@dataclass(frozen=True, eq=False)
+class Reachability:
+    """The walkable grid of one layout and the items that cannot be reached (Tech Spec 3.3)."""
+
+    xs: np.ndarray  # (nx,) cell centres along x
+    ys: np.ndarray  # (ny,) cell centres along y
+    passable: np.ndarray  # (nx, ny) at least min_path_width / 2 from every footprint and wall
+    reached: np.ndarray  # (nx, ny) passable and connected to the door
+    unreachable: tuple[int, ...]  # slots that need access but cannot be walked up to
+
+
+def reachability(layout: Layout, catalog: RoomCatalog, rules: Rules) -> Reachability:
+    """H4: which items a person can walk up to from the door (Tech Spec 3.3).
+
+    1. Cover the room with cells of at most `cell` meters.
+    2. A cell is passable if its centre is at least min_path_width / 2 from every footprint
+       and every wall. Distances are exact point-to-box distances, not rounded to cells,
+       and the door opening counts as free wall.
+    3. The reached region is the 4-connected group of passable cells (scipy.ndimage.label)
+       that contains the centre of the door clearance zone.
+    4. An item is reachable if a reached cell lies within access_tolerance of its access
+       line: the front face moved access_offset in front of the item. An item with
+       rot_symmetry > 1 has an access line on every equivalent face, because its stored
+       rotation is arbitrary among them.
+
+    Step 4 uses the whole front face, not only the point in front of its middle (the Tech
+    Spec wording): with a coffee table 0.35 to 0.50 m in front of a sofa, that point always
+    falls in the narrow gap between them, so every such sofa would fail H4.
+
+    Cells are sampled at their centres, so a corridor narrower than min_path_width always
+    blocks, one at least min_path_width + cell wide always passes, and one in between
+    depends on how it lines up with the grid.
+    """
+    _check_room_type(layout, catalog)
+    params = rules.reachability
+    nx = max(1, int(np.ceil(layout.width / params.cell - 1e-9)))
+    ny = max(1, int(np.ceil(layout.depth / params.cell - 1e-9)))
+    xs = (np.arange(nx) + 0.5) * (layout.width / nx)
+    ys = (np.arange(ny) + 0.5) * (layout.depth / ny)
+    px, py = np.meshgrid(xs, ys, indexing="ij")
+
+    door = door_geometry(layout.width, layout.depth, layout.door_wall, layout.door_offset, rules.door)
+    clearance = np.minimum(_distance_to_walls(px, py, layout, door, rules.door.width),
+                           _distance_to_items(px, py, layout))
+    passable = clearance >= params.min_path_width / 2
+
+    labels, _ = ndimage.label(passable)  # 4-connectivity, the default in 2D
+    start_i = min(int(door.zone_center[0] / layout.width * nx), nx - 1)
+    start_j = min(int(door.zone_center[1] / layout.depth * ny), ny - 1)
+    # Unlabelled (blocked) cells carry label 0, so a blocked start reaches nothing.
+    reached = passable & (labels == labels[start_i, start_j])
+
+    reached_points = np.stack([px[reached], py[reached]], axis=-1)
+    eff = layout.eff_size
+    unreachable = []
+    for k in np.flatnonzero(layout.mask):
+        slot = catalog.slots[k]
+        if not slot.needs_access:
+            continue
+        lines = _access_lines(layout.center[k], eff[k], int(layout.rot[k]), slot.rot_symmetry, params.access_offset)
+        if not any(_near_line(reached_points, *line, params.access_tolerance) for line in lines):
+            unreachable.append(int(k))
+    return Reachability(xs, ys, passable, reached, tuple(unreachable))
+
+
+def _distance_to_items(px: np.ndarray, py: np.ndarray, layout: Layout) -> np.ndarray:
+    """Distance from each point to the nearest present footprint (0 inside one)."""
+    lo, hi = geometry.box_bounds(layout.center[layout.mask], layout.eff_size[layout.mask])
+    if len(lo) == 0:
+        return np.full(px.shape, np.inf)
+    dx = np.maximum(np.maximum(lo[:, 0] - px[..., None], 0.0), px[..., None] - hi[:, 0])
+    dy = np.maximum(np.maximum(lo[:, 1] - py[..., None], 0.0), py[..., None] - hi[:, 1])
+    return np.hypot(dx, dy).min(axis=-1)
+
+
+def _distance_to_walls(px: np.ndarray, py: np.ndarray, layout: Layout, door: DoorGeometry,
+                       door_width: float) -> np.ndarray:
+    """Distance from each point to the nearest wall, with the door opening left out."""
+    distance = {"W": px, "E": layout.width - px, "S": py, "N": layout.depth - py}
+    wall = layout.door_wall
+    along, middle = (px, door.center[0]) if wall in ("S", "N") else (py, door.center[1])
+    to_jamb = door_width / 2 - np.abs(along - middle)  # positive inside the opening
+    # Inside the opening the nearest wall point is a door jamb, not the wall line.
+    distance[wall] = np.where(to_jamb > 0, np.hypot(distance[wall], to_jamb), distance[wall])
+    return np.minimum.reduce(list(distance.values()))
+
+
+def _access_lines(center: np.ndarray, eff: np.ndarray, rot: int, rot_symmetry: int, offset: float):
+    """For every equivalent face: (midpoint, half-length, axis the face runs along)."""
+    for r in geometry.equivalent_rotations(rot, rot_symmetry):
+        along = 0 if r % 2 == 0 else 1  # a face looking North or South runs along x
+        yield geometry.front_point(center, eff, r, offset), eff[along] / 2, along
+
+
+def _near_line(points: np.ndarray, middle: np.ndarray, half: float, along: int, tol: float) -> bool:
+    """Whether any point lies within `tol` of the axis-aligned segment."""
+    beyond_end = np.maximum(np.abs(points[:, along] - middle[along]) - half, 0.0)
+    across = np.abs(points[:, 1 - along] - middle[1 - along])
+    return bool(np.any(np.hypot(beyond_end, across) <= tol))

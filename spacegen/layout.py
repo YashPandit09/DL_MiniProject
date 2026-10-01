@@ -78,6 +78,45 @@ def make_layout(catalog: RoomCatalog, width: float, depth: float, door_wall: str
                   center, rot, size, mask, tuple(ids))
 
 
+def layout_to_dict(layout: Layout, catalog: RoomCatalog, door_width: float,
+                   metrics: dict | None = None, meta: dict | None = None) -> dict:
+    """The layout JSON shared by the pipeline, the app, exports and the 3D view (Architecture 7.1)."""
+    items = []
+    for k in np.flatnonzero(layout.mask):
+        v = catalog.slot(int(k)).variant(layout.variant_ids[k])
+        items.append({"slot": int(k), "id": v.id, "w": v.w, "d": v.d, "h": v.h,
+                      "x": float(layout.center[k, 0]), "y": float(layout.center[k, 1]),
+                      "rotation": int(layout.rot[k]), "price": v.price})
+    data = {
+        "room": {"type": layout.room_type, "width": layout.width, "depth": layout.depth},
+        "door": {"wall": layout.door_wall, "offset": layout.door_offset, "width": door_width},
+        "items": items,
+    }
+    if metrics is not None:
+        data["metrics"] = metrics
+    if meta is not None:
+        data["meta"] = meta
+    return data
+
+
+def layout_from_dict(data: dict, catalog: RoomCatalog) -> Layout:
+    """Read a layout JSON; item sizes must match the catalog variants they name."""
+    if data["room"]["type"] != catalog.room_type:
+        raise ValueError(f"layout is a {data['room']['type']}, catalog is for {catalog.room_type}")
+    items, variants = {}, {}
+    for item in data["items"]:
+        slot = catalog.slot(item["slot"])
+        if slot.name in items:
+            raise ValueError(f"slot {slot.index} ({slot.name}) appears twice")
+        variant = slot.variant(item["id"])
+        if not np.allclose((item["w"], item["d"]), (variant.w, variant.d)):
+            raise ValueError(f"{item['id']}: size {item['w']} x {item['d']} differs from the catalog")
+        items[slot.name] = (item["x"], item["y"], item["rotation"])
+        variants[slot.name] = variant.id
+    return make_layout(catalog, data["room"]["width"], data["room"]["depth"], data["door"]["wall"],
+                       data["door"]["offset"], items, variants)
+
+
 def _check_rot(rot: int) -> int:
     if rot not in range(4):
         raise ValueError(f"rotation class must be 0, 1, 2 or 3, got {rot}")
