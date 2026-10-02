@@ -57,4 +57,10 @@ baselines:             # (T12, Tech Spec 4.3)
                        # size with the same door wall, then from all rooms
   b2_noise: 0.02       # (T12) sigma of the noise added to a drawn u and v
   b2_redraws: 10       # (T12) times an item is drawn again while it overlaps one already placed
-  b2_redraw_outside: false  # (T12) also draw again while the item sticks out of the room
+  b2_redraw_outside: true   # (T12, chosen after T15) also draw again while the item sticks out of the
+                       # room; without it B2 fails mostly because positions taken as fractions of a
+                       # larger training room stick out of a smaller one (20% vs 60% raw valid)
+
+evaluation:            # (T16, Tech Spec 6 and 7) the same rooms and samples for every method
+  rooms: 500           # (T16) Set A test rooms: the diversity-reference rooms, then random ones
+  samples: 64          # (spec) raw samples per room (N = 64 in the pipeline)

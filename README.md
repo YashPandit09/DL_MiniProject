@@ -45,6 +45,7 @@ does the same thing.
 | `python run.py generator-report` | Generate 2,000 Set A layouts, print acceptance, styles and quality, and plot the share of attempts rejected by room area and item count (`reports/figures/generator_rejection.png`; `--layouts N` and `--seed S` change the run) |
 | `python run.py set-b-report` | Generate 2,000 Set B layouts and print the share valid and mean quality per perturbation type |
 | `python run.py data` | Build the dataset in `data/v1/` (about 7 minutes): Set A (30k), Set B (60k), splits, held-out sets, diversity reference, f_max calibration, `metadata.json` with a content hash, and the figures `reports/figures/dataset_v1_*.png` (`--figures-only` redraws them) |
+| `python run.py baselines` | Evaluate B1, B2 and G0 on 500 test rooms of dataset v1, 64 samples each (about 4 minutes); writes `reports/tables/baselines.csv` |
 | `python -m spacegen.viz layout.json layout.png` | Draw a layout JSON as a floor plan with its hard-check results |
 
 ## Reproducibility
@@ -83,3 +84,7 @@ does the same thing.
   G0 the generator
 - [x] T15 Dataset v1: 30k Set A, 60k Set B (62% valid), held-out sets, metadata and content hash,
   figures; f_max calibrated to 0.38 (the spec's start was 0.45)
+- [x] T16 Evaluation harness (`spacegen/metrics.py`, `spacegen/evaluate.py`) and the baseline table:
+  raw valid B1 10%, B2 58%, G0 75% per attempt
+- [x] T17 Notebook `notebooks/01_manual_backprop.ipynb`: hand-derived gradients of a two-item toy
+  network (masked MSE, cross-entropy, penetration-depth overlap) equal autograd to 2e-15

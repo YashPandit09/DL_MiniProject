@@ -11,7 +11,9 @@ B1  every item placed uniformly where it fits inside the room, facing a random w
 B2  fitted on Set A training layouts, no neural network: each item's (u, v, rotation) is drawn
     from a training layout with the same door wall and a room in the same width and depth bins,
     plus N(0, b2_noise^2) on u and v. Items are placed one after another in slot order, and one
-    that overlaps an item already placed is drawn again, up to b2_redraws times.
+    that overlaps an item already placed, or (b2_redraw_outside, on by default) sticks out of the
+    room, is drawn again, up to b2_redraws times. Without that second condition B2 fails mostly
+    because u and v taken from a larger training room put wall items through a smaller room's wall.
 G0  generate_layout(), the Set A generator itself.
 """
 from __future__ import annotations

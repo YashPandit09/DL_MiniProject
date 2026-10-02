@@ -32,6 +32,10 @@ TASKS: dict[str, tuple[str, list[list[str]]]] = {
         "build the dataset in data/<version>/ (Set A, Set B, splits, held-out sets, f_max) and its figures",
         [[PY, "-m", "spacegen.build_dataset"]],
     ),
+    "baselines": (
+        "evaluate B1, B2 and G0 on the dataset; writes reports/tables/baselines.csv",
+        [[PY, "-m", "spacegen.evaluate"]],
+    ),
 }
 
 

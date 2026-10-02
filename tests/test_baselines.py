@@ -58,7 +58,9 @@ def test_b1_keeps_items_inside_the_room_facing_every_way(catalog, rules, conditi
 def test_b2_reproduces_where_training_rooms_put_each_item(catalog, good_layout):
     rng = np.random.default_rng(0)
     copies = [good_layout.with_item(SOFA, center=good_layout.center[SOFA] + rng.normal(0, 0.02, 2)) for _ in range(60)]
-    b2 = StatisticalBaseline(catalog, CONFIG).fit(stack_layouts(copies, catalog))
+    # without out-of-room redraws, which would cut off the draws pushing the wall sofa outwards
+    plain = dataclasses.replace(CONFIG, b2_redraw_outside=False)
+    b2 = StatisticalBaseline(catalog, plain).fit(stack_layouts(copies, catalog))
     samples = b2.sample(Condition.of(good_layout, catalog), 100, rng).layouts
     sofa = np.array([layout.center[SOFA] for layout in samples])
     np.testing.assert_allclose(sofa.mean(axis=0), good_layout.center[SOFA], atol=0.03)
