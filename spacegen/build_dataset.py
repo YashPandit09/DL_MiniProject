@@ -26,7 +26,6 @@ import dataclasses
 import hashlib
 import json
 import platform
-import subprocess
 import sys
 import time
 from dataclasses import dataclass
@@ -38,14 +37,15 @@ import pandas as pd
 import yaml
 from scipy.optimize import minimize
 
-from spacegen.catalog import CATALOG_PATH, RoomCatalog, load_room_catalog
+from spacegen.catalog import RoomCatalog, load_room_catalog
 from spacegen.config import DEFAULT_CONFIG, load_config
 from spacegen.dataset import load_layouts, save_layouts
 from spacegen.generator import (GeneratorConfig, generate_layout, generate_set_a, load_generator_config,
                                 sample_condition)
-from spacegen.paths import DATA_DIR, REPO_ROOT, REPORTS_DIR
+from spacegen.paths import DATA_DIR, REPORTS_DIR
 from spacegen.perturb import SetBConfig, generate_set_b, label_summary, load_set_b_config
-from spacegen.rules import RULES_PATH, Rules, footprint_ratio, load_rules
+from spacegen.provenance import config_files, git_state
+from spacegen.rules import Rules, footprint_ratio, load_rules
 from spacegen.splits import (SplitConfig, diversity_reference, generate_held_out, leaks, load_split_config,
                              split_indices, training_rooms)
 
@@ -125,9 +125,9 @@ def build_dataset(out_dir: Path, seed: int, sizes: DatasetConfig, catalog: RoomC
         "version": sizes.version,
         "seed": seed,
         "created": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "git": _git_state(),
+        "git": git_state(),
         "software": {"python": platform.python_version(), "numpy": np.__version__, "pandas": pd.__version__},
-        "configs": {path.name: path.read_text(encoding="utf-8") for path in (DEFAULT_CONFIG, RULES_PATH, CATALOG_PATH)},
+        "configs": config_files(),
         "counts": {"set_a": len(set_a.layouts), "set_b": len(labelled.layouts),
                    **{f"held_out_{name}": len(result.layouts) for name, result in held_out.items()},
                    "diversity_reference": len(diversity.layouts), "calibration_rooms": len(calibration),
@@ -234,12 +234,6 @@ def dataset_hash(files: dict[str, str]) -> str:
 
 def _shares(values: pd.Series) -> dict[str, float]:
     return {str(k): round(float(v), 4) for k, v in values.value_counts(normalize=True).sort_index().items()}
-
-
-def _git_state() -> dict:
-    def git(*args):
-        return subprocess.run(["git", *args], cwd=REPO_ROOT, capture_output=True, text=True).stdout.strip()
-    return {"commit": git("rev-parse", "HEAD"), "uncommitted_changes": bool(git("status", "--porcelain"))}
 
 
 def make_figures(data_dir: Path, figures_dir: Path, split: SplitConfig) -> list[Path]:

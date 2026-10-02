@@ -29,8 +29,9 @@ import torch
 from spacegen import geometry
 from spacegen.catalog import RoomCatalog
 from spacegen.config import DEFAULT_CONFIG, load_config
+from spacegen.dataset import LayoutBatch, stack_layouts
 from spacegen.layout import Layout
-from spacegen.rules import Rules, door_geometry
+from spacegen.rules import WALLS, Rules, door_geometry
 
 CHANNELS = ("room", "furniture", "fronts", "door zone")
 
@@ -77,22 +78,52 @@ def rasterize(center: torch.Tensor, size: torch.Tensor, rot: torch.Tensor, mask:
     return torch.stack(channels, dim=1)
 
 
+@dataclass(frozen=True)
+class RasterInputs:
+    """Layouts as tensors on one device, ready for rasterize(): built once per dataset, so that
+    training rasterizes mini-batches by indexing (Set B as precomputed rasters would need 16 GB)."""
+    center: torch.Tensor  # (N, K, 2)
+    size: torch.Tensor  # (N, K, 2) catalog (w, d)
+    rot: torch.Tensor  # (N, K)
+    mask: torch.Tensor  # (N, K) bool
+    room: torch.Tensor  # (N, 2)
+    zone_center: torch.Tensor  # (N, 2) door clearance zone
+    zone_size: torch.Tensor  # (N, 2)
+    rot_symmetry: torch.Tensor  # (K,)
+
+    def __len__(self) -> int:
+        return self.center.shape[0]
+
+    def rasterize(self, index, config: RasterConfig) -> torch.Tensor:
+        """(len(index), 4, P, P) rasters of the layouts at `index`."""
+        return rasterize(self.center[index], self.size[index], self.rot[index], self.mask[index], self.room[index],
+                         self.zone_center[index], self.zone_size[index], self.rot_symmetry, config)
+
+
+def raster_inputs(batch: LayoutBatch, catalog: RoomCatalog, rules: Rules, device: str | torch.device = "cpu",
+                  dtype: torch.dtype = torch.float32) -> RasterInputs:
+    """A batch of layouts as RasterInputs on `device`, with each room's door clearance zone."""
+    if batch.room_type != catalog.room_type:
+        raise ValueError(f"layouts are {batch.room_type}, catalog is for {catalog.room_type}")
+    zones = [door_geometry(float(w), float(d), WALLS[wall], float(o), rules.door)
+             for (w, d), wall, o in zip(batch.room, batch.door_wall, batch.door_offset)]
+
+    def tensor(values, kind=dtype):
+        return torch.as_tensor(np.asarray(values), dtype=kind, device=device)
+
+    return RasterInputs(tensor(batch.center), tensor(batch.sizes(catalog)), tensor(batch.rot, torch.long),
+                        tensor(batch.mask, torch.bool), tensor(batch.room),
+                        tensor([z.zone_center for z in zones]), tensor([z.zone_size for z in zones]),
+                        tensor([s.rot_symmetry for s in catalog.slots], torch.long))
+
+
 def rasterize_layouts(layouts: Sequence[Layout], catalog: RoomCatalog, rules: Rules, config: RasterConfig,
                       device: str | torch.device = "cpu", dtype: torch.dtype = torch.float32) -> torch.Tensor:
     """Rasters of Layout objects, as (len(layouts), 4, P, P) on `device`."""
     if any(layout.room_type != catalog.room_type for layout in layouts):
         raise ValueError(f"every layout must be a {catalog.room_type}")
-
-    def stack(values, kind=dtype):
-        return torch.as_tensor(np.stack(values), dtype=kind, device=device)
-
-    zones = [door_geometry(l.width, l.depth, l.door_wall, l.door_offset, rules.door) for l in layouts]
-    return rasterize(
-        stack([l.center for l in layouts]), stack([l.size for l in layouts]),
-        stack([l.rot for l in layouts], torch.long), stack([l.mask for l in layouts], torch.bool),
-        stack([l.room for l in layouts]), stack([z.zone_center for z in zones]),
-        stack([z.zone_size for z in zones]),
-        torch.tensor([s.rot_symmetry for s in catalog.slots], device=device), config)
+    inputs = raster_inputs(stack_layouts(layouts, catalog), catalog, rules, device, dtype)
+    return inputs.rasterize(slice(None), config)
 
 
 def _coverage(lo: torch.Tensor, hi: torch.Tensor, weight: torch.Tensor, edges: torch.Tensor,

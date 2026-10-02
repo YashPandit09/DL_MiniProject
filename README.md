@@ -47,6 +47,7 @@ does the same thing.
 | `python run.py set-b-report` | Generate 2,000 Set B layouts and print the share valid and mean quality per perturbation type |
 | `python run.py data` | Build the dataset in `data/v1/` (about 7 minutes): Set A (30k), Set B (60k), splits, held-out sets, diversity reference, f_max calibration, `metadata.json` with a content hash, and the figures `reports/figures/dataset_v1_*.png` (`--figures-only` redraws them) |
 | `python run.py baselines` | Evaluate B1, B2 and G0 on 500 test rooms of dataset v1, 64 samples each (about 4 minutes); writes `reports/tables/baselines.csv` |
+| `python run.py train-evaluator` | Train the CNN evaluator on Set B on the GPU (one epoch by default; `--epochs N --name RUN`); writes `runs/evaluator/RUN/` with `run.json` (seed, configs, git commit, dataset hash), `log.csv` and `model.pt` |
 | `python -m spacegen.viz layout.json layout.png` | Draw a layout JSON as a floor plan with its hard-check results |
 
 ## Reproducibility
@@ -91,3 +92,8 @@ does the same thing.
   network (masked MSE, cross-entropy, penetration-depth overlap) equal autograd to 2e-15
 - [ ] T18 Gate 1 review: 7 of 9 boxes done with evidence in `reports/gate1.md`; the cross-teaching
   session and the Week 1 hours log are for the team
+- [x] T19 CVAE (`spacegen/models/cvae.py`): encoder, decoder with a logit rotation head, masked loss
+  and KL, every Week 2 experiment switch in `configs/default.yaml`; 177,732 parameters; memorizes 64
+  layouts within 500 steps
+- [x] T20 CNN evaluator (`spacegen/models/evaluator.py`, `spacegen/train_evaluator.py`): 585,682
+  parameters, Set B rasterized on the GPU, 19 s per epoch; validation accuracy 94% after 10 epochs

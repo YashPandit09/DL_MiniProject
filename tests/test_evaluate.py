@@ -6,11 +6,8 @@ import pandas as pd
 import pytest
 
 from spacegen.baselines import GeneratorBaseline, UniformBaseline
-from spacegen.build_dataset import build_dataset, load_dataset_config
 from spacegen.evaluate import EvaluationConfig, evaluate, evaluate_baselines, evaluation_rooms, summarize
 from spacegen.generator import Condition, load_generator_config, sample_condition
-from spacegen.perturb import load_set_b_config
-from spacegen.splits import load_split_config
 
 GENERATOR = load_generator_config()
 
@@ -19,15 +16,6 @@ GENERATOR = load_generator_config()
 def conditions(catalog, rules):
     rng = np.random.default_rng(0)
     return [sample_condition(rng, catalog, rules, GENERATOR) for _ in range(3)]
-
-
-@pytest.fixture(scope="module")
-def tiny(tmp_path_factory, catalog, rules):
-    directory = tmp_path_factory.mktemp("tiny")
-    sizes = dataclasses.replace(load_dataset_config(), version="tiny", set_a=40, set_b=10, calibration_rooms=20)
-    split = dataclasses.replace(load_split_config(), held_out_rooms=2, diversity_rooms=3, diversity_layouts=3)
-    build_dataset(directory, 1, sizes, catalog, rules, GENERATOR, load_set_b_config(), split, log=lambda m: None)
-    return directory
 
 
 def test_every_method_gets_the_same_raw_samples_per_room(catalog, rules, conditions):
@@ -53,17 +41,17 @@ def test_summary_follows_the_metric_definitions():
     assert np.isnan(summarize("G0", rooms, pd.Series(dtype=float), prefiltered=True)["mean_overlap"])
 
 
-def test_evaluation_rooms_start_with_the_diversity_rooms(tiny, catalog):
-    rooms, reference = evaluation_rooms(tiny, 6, np.random.default_rng(0), catalog)
-    info = pd.read_csv(tiny / "diversity_reference.csv")
+def test_evaluation_rooms_start_with_the_diversity_rooms(tiny_dataset, catalog):
+    rooms, reference = evaluation_rooms(tiny_dataset, 6, np.random.default_rng(0), catalog)
+    info = pd.read_csv(tiny_dataset / "diversity_reference.csv")
     assert len(rooms) == 6 and len(reference) == info["source"].nunique() <= 3
     assert all(isinstance(cond, Condition) for cond in rooms)
     assert len({(c.width, c.depth, c.door_offset) for c in rooms}) == 6  # no room twice
     assert (reference.dropna() >= 0).all()
 
 
-def test_baselines_table(tiny, catalog, rules):
-    table = evaluate_baselines(tiny, EvaluationConfig(rooms=4, samples=5), 0, catalog, rules, log=lambda m: None)
+def test_baselines_table(tiny_dataset, catalog, rules):
+    table = evaluate_baselines(tiny_dataset, EvaluationConfig(rooms=4, samples=5), 0, catalog, rules, log=lambda m: None)
     assert table["method"].tolist() == ["B1", "B2", "G0"]
     assert (table["samples"] == 20).all() and table["rvr"].between(0, 1).all()
     assert np.isnan(table.loc[2, "mean_overlap"]) and not np.isnan(table.loc[0, "mean_overlap"])

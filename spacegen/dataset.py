@@ -138,6 +138,14 @@ def encode_targets(batch: LayoutBatch, catalog: RoomCatalog, dtype=np.float32) -
     return per_slot.reshape(len(batch), -1).astype(dtype)
 
 
+def unpack_conditions(c: torch.Tensor, num_slots: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Room (W, D) in meters (..., 2), presence masks (..., K) and catalog sizes (w, d) in
+    meters (..., K, 2), read back from condition vectors (tensors)."""
+    k = num_slots
+    widths, depths = c[..., 7 + k:7 + 2 * k], c[..., 7 + 2 * k:7 + 3 * k]
+    return c[..., :2] * ROOM_SCALE, c[..., 7:7 + k], torch.stack([widths, depths], dim=-1) * SIZE_SCALE
+
+
 def split_targets(x):
     """Target vectors (..., 6K) as positions (..., K, 2) and rotation scores (..., K, 4).
 

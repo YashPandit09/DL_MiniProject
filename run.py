@@ -36,6 +36,10 @@ TASKS: dict[str, tuple[str, list[list[str]]]] = {
         "evaluate B1, B2 and G0 on the dataset; writes reports/tables/baselines.csv",
         [[PY, "-m", "spacegen.evaluate"]],
     ),
+    "train-evaluator": (
+        "train the CNN evaluator on Set B (default one epoch; --epochs N --name RUN)",
+        [[PY, "-m", "spacegen.train_evaluator"]],
+    ),
 }
 
 
