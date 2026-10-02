@@ -1,0 +1,15 @@
+experiment,setting,run,epochs,selected_epoch,val_loss,val_position,val_rotation,val_kl,active_units,position_error_median,position_error_mean,m1_rvr,m1_quality,dead_share,seconds
+e3b,"relu, depth 2",batch_norm-false__early_stopping-false__max_epochs-60,60,60,0.62346,0.13929,0.03868,4.45492,5,0.67257,0.72934,0.10016,0.525,0.08496,44.84
+e3b,"leaky_relu, depth 2",activation-leaky_relu__batch_norm-false__early_stopping-false__max_epochs-60,60,60,0.62129,0.13791,0.03953,4.43849,7,0.64983,0.70251,0.10094,0.52948,0.0,44.17
+e3b,"elu, depth 2",activation-elu__batch_norm-false__early_stopping-false__max_epochs-60,60,60,0.61909,0.14082,0.04304,4.35221,5,0.63217,0.6912,0.09781,0.4816,0.0,44.71
+e3b,"gelu, depth 2",activation-gelu__batch_norm-false__early_stopping-false__max_epochs-60,60,60,0.61418,0.13101,0.03435,4.48822,6,0.60109,0.67108,0.10547,0.53431,0.0,44.26
+e3b,"tanh, depth 2",activation-tanh__batch_norm-false__early_stopping-false__max_epochs-60,60,60,0.62644,0.13394,0.04161,4.50889,5,0.62557,0.67595,0.19609,0.56588,0.0,44.2
+e3b,"sigmoid, depth 2",activation-sigmoid__batch_norm-false__early_stopping-false__max_epochs-60,60,60,0.61554,0.17478,0.01781,4.22953,3,0.8156,0.88219,0.10438,0.58001,0.0,43.16
+e3b,"relu, depth 6",batch_norm-false__depth-6__early_stopping-false__max_epochs-60,60,60,1.23811,0.2809,0.69128,2.65935,1,0.94696,1.10165,0.07438,0.70115,0.28581,71.29
+e3b,"leaky_relu, depth 6",activation-leaky_relu__batch_norm-false__depth-6__early_stopping-false__max_epochs-60,60,60,0.81211,0.20789,0.28648,3.1774,1,0.87323,0.97324,0.06406,0.70333,0.0,71.98
+e3b,"elu, depth 6",activation-elu__batch_norm-false__depth-6__early_stopping-false__max_epochs-60,60,60,0.63532,0.16006,0.0253,4.49959,3,0.78283,0.84964,0.10625,0.67412,0.0,71.35
+e3b,"gelu, depth 6",activation-gelu__batch_norm-false__depth-6__early_stopping-false__max_epochs-60,60,60,0.6168,0.1741,0.03963,4.03075,2,0.81222,0.88605,0.11156,0.6688,0.0,72.75
+e3b,"tanh, depth 6",activation-tanh__batch_norm-false__depth-6__early_stopping-false__max_epochs-60,60,60,2.47365,0.46033,1.69122,3.22096,6,1.3348,1.43075,0.0675,0.66628,0.0,48.84
+e3b,"sigmoid, depth 6",activation-sigmoid__batch_norm-false__depth-6__early_stopping-false__max_epochs-60,60,60,4.86877,0.6465,4.22225,0.00023,0,1.73254,1.70841,0.0,,0.0,71.79
+e3b,"sigmoid, depth 6, BatchNorm on",activation-sigmoid__depth-6__early_stopping-false__max_epochs-60,60,60,1.04686,0.22874,0.39003,4.28088,3,0.88397,0.99408,0.14328,0.56996,0.0,89.32
+e3b,"relu, depth 6, BatchNorm on",depth-6__early_stopping-false__max_epochs-60,60,60,0.64112,0.15996,0.01412,4.67038,6,0.77553,0.84163,0.13094,0.60868,0.0,105.63

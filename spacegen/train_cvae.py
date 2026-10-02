@@ -7,8 +7,8 @@ python run.py train-cvae --name e5-beta1 --set cvae_training.beta_target=1.0 --s
 - The validation loss is always computed with beta_target and the same draw of z every epoch,
   so epochs compare fairly. Checkpoint selection and the patience counter start only once
   annealing is over; otherwise the rising beta would stop training early (Tech Spec 4.1).
-- log.csv, one row per epoch: the loss terms, the per-layer gradient norms (mean over the
-  epoch's steps), the share of dead units per hidden layer (units silent for every validation
+- log.csv, one row per epoch: the loss terms, the validation position error in meters (comparable
+  across position losses), the per-layer gradient norms (mean over the epoch's steps), the share of dead units per hidden layer (units silent for every validation
   sample) and the active latent units (KL above 0.01 nats on validation).
 - A run writes runs/cvae/<name>/: run.json (seed, configs, git commit, dataset hash),
   log.csv, model.pt (the selected checkpoint) and summary.json, which includes a first RVR of
@@ -32,7 +32,9 @@ from torch import nn
 
 from spacegen.catalog import RoomCatalog, load_room_catalog
 from spacegen.config import DEFAULT_CONFIG, load_config
-from spacegen.dataset import TrainingTensors, load_layouts, minibatches, training_tensors
+from spacegen import geometry
+from spacegen.dataset import (LayoutBatch, TrainingTensors, load_layouts, minibatches, split_targets, training_tensors,
+                              unpack_conditions)
 from spacegen.evaluate import evaluate
 from spacegen.generator import Condition
 from spacegen.models.cvae import CVAE, CVAEConfig, CVAEOutput, active_units, cvae_loss
@@ -60,6 +62,7 @@ class TrainingConfig:
     patience: int = 15
     early_stopping: bool = True
     check_rooms: int = 100
+    outliers: float = 0.0  # E2: share of training layouts with one item moved to a random spot
 
     def __post_init__(self):
         if self.optimizer not in OPTIMIZERS:
@@ -142,9 +145,46 @@ def validate(model: CVAE, data: TrainingTensors, eps: torch.Tensor, beta: float)
         for hook in hooks:
             hook.remove()
     loss = cvae_loss(CVAEOutput(positions, logits, mu, logvar, z), data, beta, model.config)
+    error = position_errors(positions, data, model.config.num_slots)
     dead = {f"dead_{name}": float((out.abs() <= 1e-8).all(dim=0).float().mean()) for name, out in outputs.items()}
     return {"loss": loss.total.item(), "recon": loss.recon.item(), "position": loss.position.item(),
-            "rotation": loss.rotation.item(), "kl": loss.kl.item(), "active_units": active_units(mu, logvar), **dead}
+            "rotation": loss.rotation.item(), "kl": loss.kl.item(), "position_m": float(error.mean()),
+            "active_units": active_units(mu, logvar), **dead}
+
+
+def position_errors(positions: torch.Tensor, data: TrainingTensors, num_slots: int) -> np.ndarray:
+    """Distance in meters between predicted and true centres, one value per present item."""
+    target, _ = split_targets(data.x)
+    room, _, _ = unpack_conditions(data.c, num_slots)
+    distance = ((positions - target) * room[:, None, :]).norm(dim=-1)
+    return distance[data.mask > 0.5].detach().cpu().numpy()
+
+
+@torch.no_grad()
+def reconstruction_errors(model: CVAE, data: TrainingTensors) -> dict[str, float]:
+    """Position error in meters with z = mu (E2), overall and split at 0.05 from the walls (E7)."""
+    model.eval()
+    out = model(data.x, data.c, sample=False)
+    target, _ = split_targets(data.x)
+    present = data.mask > 0.5
+    near = ((target < 0.05) | (target > 0.95)).any(dim=-1)[present].cpu().numpy()
+    error = position_errors(out.positions.clamp(0.0, 1.0), data, model.config.num_slots)
+    return {"position_error_median": float(np.median(error)), "position_error_mean": float(error.mean()),
+            "position_error_near_walls": float(error[near].mean()) if near.any() else None,
+            "position_error_rest": float(error[~near].mean())}
+
+
+def with_outliers(batch: LayoutBatch, share: float, rng: np.random.Generator,
+                  catalog: RoomCatalog) -> tuple[LayoutBatch, np.ndarray]:
+    """E2's outlier variant (Tech Spec 2.4): in a share of the layouts, one present item moves to a
+    uniformly random spot where it still fits in the room. Returns the batch and the changed rows."""
+    rows = np.sort(rng.choice(len(batch), size=round(share * len(batch)), replace=False))
+    center = batch.center.copy()
+    half = geometry.effective_size(batch.sizes(catalog), batch.rot) / 2
+    for row in rows:
+        k = rng.choice(np.flatnonzero(batch.mask[row]))
+        center[row, k] = rng.uniform(half[row, k], batch.room[row] - half[row, k])
+    return dataclasses.replace(batch, center=center), rows
 
 
 def train_cvae(data_dir: Path, out_dir: Path, seed: int, device: str | torch.device,
@@ -161,7 +201,11 @@ def train_cvae(data_dir: Path, out_dir: Path, seed: int, device: str | torch.dev
     set_a = load_layouts(data_dir / "set_a.npz")
     with np.load(data_dir / "splits.npz") as splits:
         rows = {part: splits[f"set_a_{part}"] for part in SPLITS}
-    train = training_tensors(set_a.subset(rows["train"]), catalog, device)
+    train_layouts, outlier_rows = set_a.subset(rows["train"]), np.array([], dtype=int)
+    if training.outliers > 0:  # E2: only the training split changes; validation and test stay clean
+        train_layouts, outlier_rows = with_outliers(train_layouts, training.outliers, np.random.default_rng(seed),
+                                                    catalog)
+    train = training_tensors(train_layouts, catalog, device)
     val = training_tensors(set_a.subset(rows["validation"]), catalog, device)
 
     model = CVAE(model_config).to(device)
@@ -218,7 +262,8 @@ def train_cvae(data_dir: Path, out_dir: Path, seed: int, device: str | torch.dev
                "selected_position_loss": float(chosen["val_position"]),
                "selected_rotation_loss": float(chosen["val_rotation"]), "selected_kl": float(chosen["val_kl"]),
                "active_units": int(chosen["val_active_units"]),
-               "parameters": sum(p.numel() for p in model.parameters())}
+               "parameters": sum(p.numel() for p in model.parameters()), "outlier_layouts": len(outlier_rows),
+               **reconstruction_errors(model, val)}
     if training.check_rooms > 0:
         check = _m1_check(model, set_a, rows["test"], training.check_rooms, seed, catalog, device)
         summary["m1_check"] = check

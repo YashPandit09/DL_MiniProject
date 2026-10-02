@@ -104,6 +104,8 @@ cvae_training:         # (T21, Tech Spec 4.1) python run.py train-cvae
   early_stopping: true # (spec) E6 compares it with training for max_epochs
   check_rooms: 100     # (T21) after training, Set A test rooms to sample (64 each) for a first
                        # RVR of M1; the E1 numbers come later, on the frozen configuration
+  outliers: 0.0        # (T26) E2's outlier variant: share of the training layouts that get one item
+                       # moved to a random spot in the room (0.04 in E2); validation and test stay clean
 
 latent_opt:            # M2: optimize z with the decoder frozen (T23, Tech Spec 5.2)
   steps: 150           # (spec, start) T; E8 tries 0, 25, 50, 100 and 200

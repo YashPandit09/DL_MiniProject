@@ -51,6 +51,7 @@ does the same thing.
 | `python run.py train-cvae` | Train the CVAE on Set A (about 1.5 minutes on the GPU): KL annealing, early stopping, per-epoch log with gradient norms, dead and active units, and a first M1 check; `--name RUN --set cvae.<field>=<value>` for the experiments |
 | `python run.py evaluator-report` | E9a metrics of the evaluator in `runs/evaluator/e9a/` on the Set B test split: `reports/tables/evaluator.csv`, `evaluator_per_type.csv`, `reports/figures/evaluator_confusion.png` |
 | `python run.py generate --width 5 --depth 4 --door W --items sofa,tv_unit,coffee_table` | The pipeline for one room (M2 by default; `--budget`, `--no-latent-opt`, `name:variant` items): the top 3 as JSON and PNG in `reports/demo/` |
+| `python run.py screen e2 e3a e3b` | The CVAE screening experiments (one seed per setting; about 40 minutes on the GPU for all 30 runs, finished runs are reused): `reports/tables/<experiment>.csv` and `reports/figures/<experiment>_*.png` |
 | `python -m spacegen.viz layout.json layout.png` | Draw a layout JSON as a floor plan with its hard-check results |
 
 ## Reproducibility
@@ -108,3 +109,7 @@ does the same thing.
   12% (M1) to 65% (M2); 99.6% of the candidates that needed repair end with a lower loss
 - [x] T25 Pipeline (`spacegen/pipeline.py`, `python run.py generate`): request checks, variants within
   the budget and f_max, M2 sampling, checks, evaluator ranking, diverse top 3; about 1.5 s per request
+- [x] T26 Screening E2, E3a, E3b (30 runs, one seed each; `experiments/`): MAE has by far the lowest
+  position error (0.19 m vs 0.58 MSE), partly because the loss scale shifts the KL balance; E3a ties
+  ReLU and Tanh on validation loss while Tanh gives M1 22% raw valid vs 12%; E3b shows vanishing
+  gradients (Sigmoid depth 6: 1e-10 at the input) and dying ReLU (29%) without BatchNorm, both masked by it

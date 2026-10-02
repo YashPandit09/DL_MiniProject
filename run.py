@@ -52,6 +52,10 @@ TASKS: dict[str, tuple[str, list[list[str]]]] = {
         "the top layouts for one room, e.g. --width 5 --depth 4 --door W --items sofa,tv_unit,coffee_table",
         [[PY, "-m", "spacegen.pipeline"]],
     ),
+    "screen": (
+        "CVAE screening experiments: e2, e3a, e3b or all (trains missing runs, writes tables and figures)",
+        [[PY, "-m", "experiments.screening"]],
+    ),
 }
 
 
