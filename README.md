@@ -44,6 +44,7 @@ does the same thing.
 | `python run.py check-env` | Versions, GPU and memory, determinism check, evaluator training speed |
 | `python run.py generator-report` | Generate 2,000 Set A layouts, print acceptance, styles and quality, and plot the share of attempts rejected by room area and item count (`reports/figures/generator_rejection.png`; `--layouts N` and `--seed S` change the run) |
 | `python run.py set-b-report` | Generate 2,000 Set B layouts and print the share valid and mean quality per perturbation type |
+| `python run.py data` | Build the dataset in `data/v1/` (about 7 minutes): Set A (30k), Set B (60k), splits, held-out sets, diversity reference, f_max calibration, `metadata.json` with a content hash, and the figures `reports/figures/dataset_v1_*.png` (`--figures-only` redraws them) |
 | `python -m spacegen.viz layout.json layout.png` | Draw a layout JSON as a floor plan with its hard-check results |
 
 ## Reproducibility
@@ -56,6 +57,8 @@ does the same thing.
   raises an error if CUDA was used first.
 - Generated data (`data/`) and training runs (`runs/`) are not committed; they are rebuilt
   from the seed and the configs in `configs/`.
+  `data/v1/metadata.json` records the seed, the configs, the git commit and a SHA-256 hash of
+  the data contents; a rebuild on the same machine gives the same hash.
 
 ## Status
 
@@ -76,3 +79,7 @@ does the same thing.
   forced overlap, near-miss at the overlap tolerance and at the door zone), each labelled by the checker
 - [x] T14 Splits 70/15/15; held-out rooms (interpolation 22 to 26 m², above 32 m², out of range) that
   training never sees; diversity reference of generator layouts
+- [x] T12 Baselines: B1 uniform random, B2 statistical sampler fitted on the Set A training split,
+  G0 the generator
+- [x] T15 Dataset v1: 30k Set A, 60k Set B (62% valid), held-out sets, metadata and content hash,
+  figures; f_max calibrated to 0.38 (the spec's start was 0.45)

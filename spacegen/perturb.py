@@ -236,9 +236,16 @@ def generate_set_b(n_layouts: int, rng: np.random.Generator, catalog: RoomCatalo
 
 
 def label_summary(info: pd.DataFrame) -> pd.DataFrame:
-    """Per perturbation type: samples, share valid and mean quality."""
-    return info.groupby("perturbation", sort=False).agg(
-        samples=("valid", "size"), valid=("valid", "mean"), quality=("quality", "mean"))
+    """Per perturbation type, clean first and the near-misses last: samples, share valid and mean quality."""
+    summary = info.groupby("perturbation").agg(samples=("valid", "size"), valid=("valid", "mean"),
+                                               quality=("quality", "mean"))
+    return summary.loc[sorted(summary.index, key=_type_order)]
+
+
+def _type_order(kind: str) -> tuple:
+    order = ("clean", "jitter", "rotation", "random", "overlap", "near_miss_overlap", "near_miss_door")
+    base, _, sigma = kind.partition("_") if kind.startswith("jitter_") else (kind, "", "")
+    return order.index(base) if base in order else len(order), float(sigma or 0)
 
 
 def _kinds(n: int, shares: dict[str, float], rng: np.random.Generator) -> list[str]:

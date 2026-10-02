@@ -27,7 +27,9 @@ reachability:                # H4 (Tech Spec 3.3)
                              # to its access line (the whole face, not just its middle: T08)
 
 feasibility:                 # pre-check (Tech Spec 3.5)
-  f_max: 0.45                # (spec, start) recalibrate from the generator's acceptance rate (T15)
+  f_max: 0.38                # (T15) calibrated on data/v1: the generator furnishes half of the rooms
+                             # at a footprint ratio of 0.377 (logistic fit, 3,903 rooms). The spec's
+                             # starting value was 0.45
 
 quality:                     # soft quality score S (Tech Spec 3.4)
   weights: {align: 0.30, relations: 0.30, circulation: 0.25, space: 0.15}  # (spec)

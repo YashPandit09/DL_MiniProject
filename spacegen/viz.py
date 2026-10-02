@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 from matplotlib.axes import Axes
 from matplotlib.colors import LinearSegmentedColormap, ListedColormap
 from matplotlib.figure import Figure
@@ -33,6 +34,8 @@ FURNITURE_FILL = "#cde2fb"
 FURNITURE_EDGE = "#2a78d6"
 FRONT_EDGE = "#1c5cab"
 CRITICAL = "#d03b3b"
+CONTEXT = "#a9a8a1"  # neutral grey for background data (the training rooms behind the held-out sets)
+HELD_OUT_COLORS = ("#2a78d6", "#eb6834", "#1baf7a")  # categorical slots 1-3, the most a scatter may use
 
 # Sequential blue ramp (steps 100 to 700 of the reference palette), starting at the surface
 # so that zero coverage disappears into the background.
@@ -156,6 +159,107 @@ def plot_rejection(attempts, cap: int) -> Figure:
                  f"{rooms} rooms, {len(attempts)} attempts; {dropped} of {rooms} rooms dropped after "
                  f"{cap} failed attempts", x=0.01, ha="left", fontsize=9, color=INK, linespacing=1.4)
     return fig
+
+
+def plot_dataset_rooms(set_a, held_out: dict, regions: dict) -> Figure:
+    """Where the rooms of each set lie (T15): training rooms by width and depth with the held-out
+    sets around them, the training floor areas with the held-out area bands, and items per room.
+
+    `set_a` and the values of `held_out` are LayoutBatch objects; `regions` the held-out regions.
+    """
+    fig = Figure(figsize=(12.5, 4.3), dpi=150, facecolor=SURFACE, layout="constrained")
+    rooms_ax, area_ax, items_ax = fig.subplots(1, 3, width_ratios=[1.3, 1.2, 0.75])
+    shown = set_a.room[:: max(1, len(set_a) // 4000)]  # thin the training cloud for the scatter
+    rooms_ax.scatter(*shown.T, s=3, color=CONTEXT, alpha=0.6, linewidths=0, label="training rooms")
+    colors = dict(zip(held_out, HELD_OUT_COLORS))
+    for name, batch in held_out.items():
+        label = name.replace("_", " ")
+        rooms_ax.scatter(*batch.room.T, s=4, color=colors[name], alpha=0.7, linewidths=0, label=label)
+        width, depth = np.median(batch.room, axis=0)
+        rooms_ax.text(width, depth, label, fontsize=7, color=INK, ha="center", va="center",
+                      bbox=dict(boxstyle="round,pad=0.2", facecolor=SURFACE, edgecolor="none", alpha=0.85))
+    rooms_ax.set(xlabel="width W (m)", ylabel="depth D (m)", aspect="equal")
+    rooms_ax.legend(loc="upper left", fontsize=6.5, frameon=False, markerscale=3, labelcolor=INK_SECONDARY)
+
+    area = set_a.room.prod(axis=1)
+    area_ax.hist(area, bins=np.arange(10.0, 43.0, 1.0), color=CONTEXT, edgecolor=SURFACE, linewidth=0.6)
+    for name, region in regions.items():
+        low, high = region.area
+        if np.isfinite(low):
+            area_ax.axvspan(low, min(high, 43.0), color=colors[name], alpha=0.15, linewidth=0)
+            area_ax.text((low + min(high, 42.0)) / 2, 0.97, f"held out:\n{name.replace('_', ' ')}", fontsize=6.5,
+                         color=INK_SECONDARY, ha="center", va="top", transform=area_ax.get_xaxis_transform())
+    area_ax.set(xlabel="floor area (m²)", ylabel="training rooms")
+
+    counts = pd.Series(set_a.mask.sum(axis=1)).value_counts(normalize=True).sort_index()
+    bars = items_ax.bar([str(k) for k in counts.index], 100 * counts.to_numpy(), width=0.6, color=CONTEXT)
+    items_ax.bar_label(bars, labels=[f"{v:.0%}" for v in counts], padding=2, fontsize=6.5, color=INK_SECONDARY)
+    items_ax.set(xlabel="items in the room", ylabel="training rooms (%)")
+    for ax in (rooms_ax, area_ax, items_ax):
+        _quiet_axes(ax)
+    fig.suptitle(f"Dataset rooms: {len(set_a)} training layouts (grey) and the held-out test sets",
+                 x=0.01, ha="left", fontsize=9, color=INK)
+    return fig
+
+
+def plot_set_b_labels(info) -> Figure:
+    """Share of valid Set B layouts per perturbation type (T15), from the checker's labels."""
+    from spacegen.perturb import label_summary
+
+    summary = label_summary(info).iloc[::-1]  # first type at the top
+    fig = Figure(figsize=(7.5, 3.9), dpi=150, facecolor=SURFACE, layout="constrained")
+    ax = fig.add_subplot()
+    bars = ax.barh([k.replace("_", " ") for k in summary.index], 100 * summary["valid"], height=0.6,
+                   color=FURNITURE_EDGE)
+    ax.bar_label(bars, labels=[f"{v:.0%} of {n}" for v, n in zip(summary["valid"], summary["samples"])], padding=3,
+                 fontsize=6.5, color=INK_SECONDARY)
+    ax.set(xlim=(0, 115), xlabel="layouts valid by the checker (%)")
+    _quiet_axes(ax, keep="left")
+    fig.suptitle(f"Set B labels per perturbation type: {len(info)} layouts, {info['valid'].mean():.0%} valid",
+                 x=0.01, ha="left", fontsize=9, color=INK)
+    return fig
+
+
+def plot_f_max(calibration, f_max: float | None, coefficients, configured: float) -> Figure:
+    """Calibration of the feasibility pre-check (T15): share of rooms the generator furnishes
+    against the footprint ratio, the logistic fit, and where it crosses one half."""
+    bins = np.round(np.arange(0.05, 0.476, 0.025), 3)
+    groups = calibration.groupby(pd.cut(calibration["ratio"], bins), observed=True)["furnished"]
+    middle = np.array([interval.mid for interval in groups.mean().index])
+    fig = Figure(figsize=(7.5, 4.0), dpi=150, facecolor=SURFACE, layout="constrained")
+    ax = fig.add_subplot()
+    ratio = np.linspace(bins[0], bins[-1], 200)
+    ax.plot(ratio, 100 / (1 + np.exp(-(coefficients[0] + coefficients[1] * ratio))), color=HELD_OUT_COLORS[1],
+            linewidth=2, label="logistic fit")
+    ax.scatter(middle, 100 * groups.mean().to_numpy(), s=24, color=FURNITURE_EDGE, zorder=3,
+               label="rooms in a 0.025-wide bin")
+    for x, (share, n) in zip(middle, zip(groups.mean(), groups.size())):
+        ax.annotate(str(n), (x, 100 * share), textcoords="offset points", xytext=(0, -11), ha="center",
+                    fontsize=5.5, color=INK_MUTED)
+    ax.axhline(50, color=INK_MUTED, linewidth=0.6, linestyle=":")
+    ax.axvline(configured, color=INK_MUTED, linewidth=1, linestyle="--")
+    ax.text(configured, 4, f" rules.yaml when built: {configured:g}", fontsize=6.5, color=INK_SECONDARY)
+    if f_max is not None:
+        ax.axvline(f_max, color=INK, linewidth=1.2)
+        ax.text(f_max, 12, f"calibrated f_max = {f_max:.3f} ", fontsize=7, color=INK, ha="right")
+    ax.set(ylim=(0, 105), xlabel="furniture footprint / floor outside the door zone",
+           ylabel="rooms furnished within the attempts (%)")
+    ax.legend(loc="lower left", fontsize=6.5, frameon=False, labelcolor=INK_SECONDARY)
+    _quiet_axes(ax)
+    fig.suptitle(f"f_max calibration: {len(calibration)} rooms, each optional item in half of them "
+                 "(number of rooms under each point)", x=0.01, ha="left", fontsize=9, color=INK)
+    return fig
+
+
+def _quiet_axes(ax: Axes, keep: str = "bottom") -> None:
+    """Muted ticks and labels; only the baseline spine (and the left one for scatter plots) shows."""
+    ax.set_facecolor(SURFACE)
+    ax.tick_params(labelsize=7, colors=INK_MUTED, length=2)
+    ax.xaxis.label.set(fontsize=7.5, color=INK_SECONDARY)
+    ax.yaxis.label.set(fontsize=7.5, color=INK_SECONDARY)
+    for name, spine in ax.spines.items():
+        spine.set_visible(name in (keep, "left") if keep == "bottom" else name == keep)
+        spine.set_color(INK_MUTED)
 
 
 def _draw_walls(ax: Axes, layout: Layout, door, door_width: float) -> None:

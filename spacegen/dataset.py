@@ -16,6 +16,7 @@ from __future__ import annotations
 import dataclasses
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -81,6 +82,19 @@ class LayoutBatch:
         """The layouts at `index` (index array, boolean mask or slice), as a new batch."""
         arrays = {f.name: getattr(self, f.name)[index] for f in dataclasses.fields(self) if f.name != "room_type"}
         return LayoutBatch(self.room_type, **arrays)
+
+
+_STORED = ("room", "door_wall", "door_offset", "mask", "variant", "center", "rot")
+
+
+def save_layouts(path: Path, batch: LayoutBatch) -> None:
+    """Write a batch to a compressed .npz file."""
+    np.savez_compressed(path, room_type=np.array(batch.room_type), **{name: getattr(batch, name) for name in _STORED})
+
+
+def load_layouts(path: Path) -> LayoutBatch:
+    with np.load(path) as data:
+        return LayoutBatch(str(data["room_type"]), **{name: data[name] for name in _STORED})
 
 
 def stack_layouts(layouts: Sequence[Layout], catalog: RoomCatalog) -> LayoutBatch:

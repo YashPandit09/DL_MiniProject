@@ -80,6 +80,10 @@ class Condition:
     def area(self) -> float:
         return self.width * self.depth
 
+    def furniture_area(self, catalog: RoomCatalog) -> float:
+        """Total footprint of the items (m^2)."""
+        return sum(catalog.slot(name).variant(variant).area for name, variant in self.items.items())
+
     @classmethod
     def of(cls, layout: Layout, catalog: RoomCatalog) -> Condition:
         """The condition a layout was made for."""

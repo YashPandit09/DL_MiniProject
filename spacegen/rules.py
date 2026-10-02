@@ -137,6 +137,12 @@ def _check_range(name: str, value) -> None:
         raise RulesError(f"{name} must be [low, high] with 0 <= low < high, got {list(value)}")
 
 
+def footprint_ratio(furniture_area: float, width: float, depth: float, door: DoorRules) -> float:
+    """Furniture footprint over the floor outside the door clearance zone. The feasibility
+    pre-check turns a request away above rules.f_max (Tech Spec 3.5)."""
+    return furniture_area / (width * depth - door.width * door.clearance_depth)
+
+
 # --------------------------------------------------------------------------- door
 
 @dataclass(frozen=True, eq=False)

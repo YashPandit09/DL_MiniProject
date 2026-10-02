@@ -40,3 +40,21 @@ splits:                # (T14, Tech Spec 2.4)
   held_out_rooms: 1000 # (T14) rooms per held-out set, each with one generator layout
   diversity_rooms: 200 # (spec) test rooms for the diversity reference (G0) ...
   diversity_layouts: 20  # (spec) ... with this many generator layouts each
+
+dataset:               # the dataset build (T15): python run.py data writes data/<version>/
+  version: v1
+  set_a: 30000         # (spec, start) good layouts for the CVAE
+  set_b: 60000         # (spec, start) labelled layouts for the evaluator
+  calibration_rooms: 5000  # (T15) rooms for calibrating f_max, spread evenly over the footprint
+                       # ratio (crowded rooms are rare in plain draws)
+  calibration_items: 0.5   # (T15) each optional item is in a calibration room with this chance,
+                       # whatever the room's size
+
+baselines:             # (T12, Tech Spec 4.3)
+  b2_bins: 3           # (T12) B2 groups training rooms into this many width bins and depth bins,
+                       # each holding an equal share of the training rooms
+  b2_min_examples: 20  # (T12) a bin with fewer examples of an item borrows from rooms of every
+                       # size with the same door wall, then from all rooms
+  b2_noise: 0.02       # (T12) sigma of the noise added to a drawn u and v
+  b2_redraws: 10       # (T12) times an item is drawn again while it overlaps one already placed
+  b2_redraw_outside: false  # (T12) also draw again while the item sticks out of the room

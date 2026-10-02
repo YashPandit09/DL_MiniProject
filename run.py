@@ -28,6 +28,10 @@ TASKS: dict[str, tuple[str, list[list[str]]]] = {
         "generate Set B layouts and print their labels per perturbation type",
         [[PY, "-m", "spacegen.perturb"]],
     ),
+    "data": (
+        "build the dataset in data/<version>/ (Set A, Set B, splits, held-out sets, f_max) and its figures",
+        [[PY, "-m", "spacegen.build_dataset"]],
+    ),
 }
 
 
