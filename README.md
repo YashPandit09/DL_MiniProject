@@ -12,6 +12,7 @@ violations, a rule checker verifies every layout, and a CNN evaluator ranks the 
 | [Tech_Spec.md](Tech_Spec.md) | Data format, rules, models, experiments, math appendix |
 | [Architecture.md](Architecture.md) | Modules, data flow, design decisions |
 | [Development_Plan.md](Development_Plan.md) | Tasks T01 to T50, gates, cut list, viva preparation |
+| [reports/gate1.md](reports/gate1.md) | Gate 1 review: checklist evidence, key numbers, cross-teaching sheet, hours log |
 
 ## Setup
 
@@ -88,3 +89,5 @@ does the same thing.
   raw valid B1 10%, B2 58%, G0 75% per attempt
 - [x] T17 Notebook `notebooks/01_manual_backprop.ipynb`: hand-derived gradients of a two-item toy
   network (masked MSE, cross-entropy, penetration-depth overlap) equal autograd to 2e-15
+- [ ] T18 Gate 1 review: 7 of 9 boxes done with evidence in `reports/gate1.md`; the cross-teaching
+  session and the Week 1 hours log are for the team

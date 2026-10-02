@@ -27,7 +27,7 @@ set_b:                 # labelled layouts for the CNN evaluator (T13, Tech Spec 
   jitter_sigmas: [0.1, 0.3, 0.6]  # (spec) m; each sigma gets a third of the jitter share
   jitter_items: 0.5    # (T13) chance that each item is jittered; at least one always is
   near_miss_area: [0.002, 0.0125]  # (T13) overlap of two items, log-uniform, so half fall below
-                       # the 0.005 m^2 tolerance (the spec's 0.002-0.05 would make 70% invalid)
+                       # the 0.005 m^2 tolerance (the spec's 0.002-0.05 would make at least 70% invalid)
   near_miss_gap: 0.03  # (T13) door near-miss: from this far clear of the zone to this far inside
   near_miss_reach: 1.0 # (T13) near-miss moves of at most this length (m) are preferred
 

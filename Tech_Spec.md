@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.3 (revised after three technical reviews; see change log in Section 12) |
+| Version | 1.4 (decisions taken while building T01 to T17, up to Gate 1; see change log in Section 12) |
 | Companion docs | PRD.md, Architecture.md, Development_Plan.md |
 | Scope | Living room (P0). Bedroom (P2). Same code, different config. |
 
@@ -18,7 +18,7 @@
 - **Door clearance zone:** rectangle of door width by `0.9 m` **(assumption)** projecting into the room from the door. Furniture must not enter it.
 - **Rotation class `r in {0,1,2,3}`:** the direction the item's front faces: 0 = North (+y), 1 = East (+x), 2 = South (-y), 3 = West (-x). Classes 1 and 3 swap the item's width and depth in the footprint.
 - **Effective footprint:** `(w_eff, d_eff) = (w, d)` if `r` is even, else `(d, w)`.
-- **Canonical labels:** some items look identical after certain rotations or swaps, which would give the network contradictory targets. The catalog stores `rot_symmetry` per item (1 = none, 2 = same after 180 degrees, 4 = same after any 90 degrees) and an optional interchangeable `group` of slots. The generator always writes the canonical form: `r` is reduced modulo `4 / rot_symmetry` (a coffee table only uses classes 0 and 1, a side table always 0), and items in an interchangeable group (the bedroom nightstands) are ordered along the bed's lateral axis (perpendicular to the direction the bed faces), so the order does not depend on jitter when the bed is against an east or west wall. The rotation loss is masked for `rot_symmetry = 4` items, and diversity ignores non-informative flips (a requested facing for a symmetric pinned item is compared modulo its symmetry). Because the stored rotation is arbitrary among equivalent faces, the checker, the raster and the quality score treat **all equivalent faces of a symmetric item alike** (Sections 3.3, 3.4 and 4.2).
+- **Canonical labels:** some items look identical after certain rotations or swaps, which would give the network contradictory targets. The catalog stores `rot_symmetry` per item (1 = none, 2 = same after 180 degrees, 4 = same after any 90 degrees) and an optional interchangeable `group` of slots. The generator always writes the canonical form: `r` is reduced modulo `4 / rot_symmetry` (a coffee table only uses classes 0 and 1, a side table always 0), and items in an interchangeable group (the bedroom nightstands) are ordered along the bed's lateral axis (perpendicular to the direction the bed faces), so the order does not depend on jitter when the bed is against an east or west wall. The rotation loss is masked for `rot_symmetry = 4` items, and diversity ignores non-informative flips (a requested facing for a symmetric pinned item is compared modulo its symmetry). Because the stored rotation is arbitrary among equivalent faces, the checker, the raster and the quality score treat **all equivalent faces of a symmetric item alike** (Sections 3.3, 3.4 and 4.2). Absent slots are zero-filled in the canonical form. Interchangeable groups are canonicalized once the bedroom is built (P2); until then the code refuses a catalog with groups rather than produce unordered labels.
 - **Normalized coordinates:** `u = x / W`, `v = y / D`. The model predicts `(u, v)`; all geometry (overlap, rules) is computed in meters after `x = u*W`, `y = v*D`.
 
 ---
@@ -43,7 +43,9 @@ Each item: `id`, `slot`, `name`, `w`, `d`, `h` (m), `price` (INR), optional `var
 
 Sofa and tv_unit are mandatory for the living room; the rest are optional. The bed is mandatory for the bedroom.
 
-Catalog flags: `coffee_table` has `rot_symmetry: 2`; `side_table` has `rot_symmetry: 4`; `nightstand_a` and `nightstand_b` form one interchangeable `group`; `tv_unit` has `needs_access: false` (a floor-standing unit placed against a wall that is viewed, not walked up to).
+Catalog flags: `coffee_table` has `rot_symmetry: 2`; `side_table` has `rot_symmetry: 4`; `nightstand_a` and `nightstand_b` form one interchangeable `group`; `tv_unit` has `needs_access: false` (a floor-standing unit placed against a wall that is viewed, not walked up to). An item with `rot_symmetry: 4` must be square in every variant, so reducing its rotation never changes its footprint; the loader checks this, along with slot order, positive sizes and unique names and ids.
+
+Only the living room is in `configs/catalog.yaml` so far. The bedroom (P2) also needs heights, prices and the bed's facing, which the table above does not give.
 
 ### 2.2 Room and door sampling ranges (assumption)
 | Room | Width `W` | Depth `D` |
@@ -69,38 +71,44 @@ For slot `k = 0..K-1`:
 | Part | Dim | Encoding |
 |---|---|---|
 | Room size | 2 | `W / 8`, `D / 8` (fixed reference scale 8 m) |
-| Door wall | 4 | one-hot |
+| Door wall | 4 | one-hot in the order N, E, S, W (the order of the rotation classes) |
 | Door offset | 1 | `o` |
 | Presence masks | K | `m_k` |
 | Item widths | K | `w_k / 3` (0 for absent) |
 | Item depths | K | `d_k / 3` (0 for absent) |
 
-**Target vector `x`** (dimension `6K = 36`): for each slot, `(u_k, v_k)` and one-hot `r_k` (4). Absent slots are zero-filled and masked out of the loss. Rotation targets are the canonical form defined in Section 1.
+**Target vector `x`** (dimension `6K = 36`): for each slot, `(u_k, v_k)` and one-hot `r_k` (4), slot after slot, so `x` reshapes to `(K, 6)`. Absent slots are zero-filled and masked out of the loss. Rotation targets are the canonical form defined in Section 1. Decoding takes the arg-max of the rotation logits and reduces it to canonical form; an encode-then-decode round trip returns the canonical layout (within 1e-5 m in float32).
 
 ### 2.4 Dataset generation
 
-**Set A (good layouts, trains the CVAE):** target 30,000 layouts per room type **(start)**.
-1. Sample `W, D` and the door, then a furniture subset whose size depends on room area (small rooms get fewer optional items, so the data is not dominated by crowded rooms that get rejected) and variants (mandatory items always present).
-2. Pick a **layout style** at random. Living-room examples: (a) sofa against a wall facing the TV unit on the opposite wall; (b) floating sofa facing a TV unit placed against the far wall; (c) L-shape with armchair perpendicular to the sofa.
-3. Place items with rule-driven anchors (against walls, facing directions, distance ranges from `configs/rules.yaml`) plus Gaussian jitter (position sigma about 0.05 m; small variation in distances).
-4. Run the hard checker; keep only layouts that pass. Cap attempts per sample. **Log the rejection rate by room-area bin and by item count** and plot it. Rejection sampling makes crowded small rooms rare in the data; state this in the report.
+**Set A (good layouts, trains the CVAE):** 30,000 layouts per room type **(start)**. Settings in `configs/default.yaml` (`generator`); relation ranges from `configs/rules.yaml`.
+1. Sample `W, D` and the door (Section 2.2), then the furniture: mandatory items always; each optional item with a probability that rises linearly with floor area, from 0.25 at 10.5 m² to 0.75 at 30 m² and above **(assumption)**. Small rooms average about one optional item and large rooms about three, and every combination still occurs at every size. Variants are equally likely.
+2. Each placement attempt picks a **layout style** uniformly among those whose anchors fit the room, then the wall behind the sofa uniformly among the walls where that style fits:
+   - (a) **wall sofa**: back against a wall, TV unit against the opposite wall. It fits only where the front-to-front distance lands in the sofa-TV range, an axis of 2.9 to 4.8 m for the catalog's depths, which rules it out in about a quarter of rooms;
+   - (b) **floating sofa**: TV unit against a wall, the sofa facing it 1.5 to 3.5 m away with at least 0.75 m of walkway behind it (an axis of at least 3.6 m);
+   - (c) **L-shape**: as (a), with the armchair's back against a side wall, facing the coffee table (needs both items).
+3. Place the items with rule-driven anchors in the frame of the wall behind the sofa. Items against a wall stand 0 to 5 cm from it; every spacing (sofa to TV unit, coffee-table gap, side-table gap; armchair 0.4 to 0.9 m from the coffee table's end) is drawn uniformly inside its range; lateral jitter has sigma 0.05 m. Every item placed relative to the sofa limits where the sofa can stand along its wall without an item leaving the room or entering the door zone, and the sofa's position is drawn from what is left. The bookshelf goes last, on any free stretch of wall with 0.6 m of clear floor in front of it. Every kept layout therefore scores 1.0 on alignment and relations.
+4. Run the hard checker and keep the first layout that passes. The room and furniture stay fixed for up to 20 attempts, so the rooms in the data follow the designed distribution; a room that fails every attempt is dropped (0.7% of rooms in v1). **Log the rejection rate by room-area bin and by item count** and plot it (`reports/figures/dataset_v1_rejection.png`: 79% of attempts rejected at 8 to 12 m², 12% at 28 to 32 m²). Rejection still makes the most crowded small rooms rarer than designed; state this in the report.
 
-**Set B (labelled layouts, trains the evaluator):** target 60,000 layouts **(start)**, about 50% valid.
-- Half from Set A style generation.
-- Half perturbed: (i) position jitter with sigma in {0.1, 0.3, 0.6} m on a random subset of items; (ii) random rotation changes; (iii) fully uniform random placement; (iv) forced overlap by moving an item onto another; (v) near-miss: shift one item so the overlap area lands between 0.002 and 0.05 m² (around the checker tolerance) or a clearance is just met or just violated. Each Set B sample stores its perturbation type so results can be reported per type.
+**Set B (labelled layouts, trains the evaluator):** 60,000 layouts **(start)**, aimed at about 50% valid. Settings in `configs/default.yaml` (`set_b`).
+- Half are generator layouts as they come (all valid).
+- Half are perturbed copies of fresh generator layouts, a tenth of Set B per type: (i) position jitter with sigma 0.1, 0.3 or 0.6 m (a third each), applied to each item with probability 0.5 and to at least one; (ii) one or two items turned to a facing that looks different, centres kept; (iii) every item placed uniformly inside the room, facing a random way; (iv) forced overlap: one item's centre moved to a random point inside another item; (v) near-miss, half of each kind: one item slid along x or y into a neighbour until they overlap by an area drawn log-uniformly from 0.002 to 0.0125 m², so half fall under the 0.005 m² tolerance; or one item slid to between 3 cm clear of the door clearance zone and 3 cm inside it. A near-miss move touches nothing else and keeps every item reachable, so the boundary is the only thing a checker has to judge. Each Set B sample stores its perturbation type so results can be reported per type.
 - Labels are computed by the checker: `valid in {0,1}` and `quality in [0,1]`.
+- Dataset v1 is 62% valid: clean 100%; jitter 47, 31 and 23%; rotation 29%; random 12%; forced overlap 0%; near-miss 49% (overlap) and 50% (door). It is above the 50% aim because some perturbations leave a layout valid; weight the classes in the loss if the imbalance matters.
 
 **Outlier variant (for E2):** Set A plus 2 to 5% deliberately odd layouts (extreme positions), flagged in metadata.
 
-**Splits:** 70 / 15 / 15 (train / validation / test), split by layout. Further test sets are **sampled separately** with the same generator, and any training room that falls in their regions is rejected, so training never sees them:
+**Splits:** 70 / 15 / 15 (train / validation / test) of Set A and of Set B, split by layout. Further test sets of **1,000 rooms each** (one generator layout per room as a reference) are **sampled separately** with the same generator, restricted to their region. Set A and Set B draw a room again whenever it falls in one of these regions, so training never sees them (asserted in a test):
 - **Interpolation set:** room areas in [22, 26] m² **(start)**. About 21% of rooms would fall here under uniform `W` and `D`, so this leaves a visible gap in the training distribution.
 - **Unseen-combination set:** room areas above 32 m² **(start)**, about 12% of rooms. Each individual `W` and `D` value still lies inside the training range, so this tests unseen *combinations*, not true extrapolation.
 - **Out-of-range set:** `W` in (7.0, 8.0] m and `D` in (6.0, 7.0] m, outside every training range (the 8 m raster canvas and the `W/8` scaling still fit). The app shows an out-of-distribution warning for such inputs.
-- **Reference set for diversity:** for 200 test conditions, 20 procedural layouts each (G0), used for the diversity ratio in E1.
+- **Reference set for diversity:** for 200 rooms of the Set A test split, 20 procedural layouts each (G0), used for the diversity ratio in E1 (3,992 layouts in v1: a few runs find no layout).
+
+Above 32 m² almost every generated layout uses the floating sofa (99% of the unseen-combination set, all of the out-of-range set), because a wall sofa needs an axis of at most 4.8 m. E10 on those sets therefore mostly tests one style; say so when reporting it.
 
 **Real-room set (P1):** 15 to 20 measured real rooms with furniture positions, never used for training.
 
-**Storage:** `.npz` (arrays) plus `metadata.json` (generator config, seed, dataset hash). Rasters are produced on the fly.
+**Storage:** `python run.py data` writes `data/v1/` in about 7 minutes: `.npz` arrays in meters (one row per layout, canonical form), CSV files with per-layout information (style, labels, quality terms) and the generator's attempt log, the split indices, the held-out and diversity sets, the `f_max` calibration rooms, and `metadata.json` (seed, the three config files, git commit, counts, label shares, `f_max`, a SHA-256 hash per file and one dataset hash). Each part draws from its own random stream spawned from the seed, and the hash covers the arrays inside the `.npz` files rather than the files (whose zip timestamps change), so a rebuild from the same commit reproduces it exactly. Rasters are produced on the fly.
 
 ---
 
@@ -141,10 +149,10 @@ L_ov    = sum_{i<j} pen_ij^2
 ### 3.3 Reachability (H4)
 1. Grid of 0.10 m cells covering the room.
 2. Mark cells covered by any furniture footprint as blocked.
-3. Compute the Euclidean distance transform from blocked cells and from the walls. A cell is **passable** if its distance to the nearest obstacle or wall is at least `min_path_width / 2`, with `min_path_width = 0.6 m` **(assumption)**.
+3. Compute the Euclidean distance from each cell centre to the nearest obstacle or wall; the implementation measures it exactly (point to box and point to wall, with the door opening counted as open), which is a distance transform without its grid error. A cell is **passable** if that distance is at least `min_path_width / 2`, with `min_path_width = 0.6 m` **(assumption)**. Because cells are sampled at their centres, a corridor narrower than 0.6 m always blocks, one at least 0.7 m wide always passes, and one in between depends on how it lines up with the grid.
 4. **Start cell** = the cell at the centre of the door clearance zone (0.45 m in front of the door centre); the door opening itself is treated as free space. Do not start from the cell just inside the door: it is closer than 0.3 m to the wall and would never be passable, so every layout would fail H4. Because H3 keeps furniture out of the zone, the start cell is passable in every layout that passes H3.
 5. Label the connected components of the passable mask with `scipy.ndimage.label` (4-connectivity). The reachable region is the component that contains the start cell.
-6. Each item has an **access point**: the point 0.35 m in front of the centre of its front face. The item is reachable if the access point's cell is in the reachable region, or lies within 0.3 m of a cell in it. For items with `rot_symmetry > 1` there is one access point on **every equivalent face** (two for `rot_symmetry = 2`, four for `rot_symmetry = 4`), and the item counts as reachable if **any** of them is, because the canonical rotation is arbitrary among equivalent faces. Otherwise a side table stored at `r = 0` and pushed against the north wall would fail H4, and a coffee table with a sofa in the narrow gap on its stored front side would fail although its other side is open. Items with `needs_access: false` in the catalog (for example the `tv_unit`, a floor-standing unit viewed from a distance) are skipped.
+6. Each item has an **access line**: its whole front face moved 0.35 m out. The item is reachable if a cell of the reachable region lies within 0.3 m of its access line. (Up to v1.3 this was a single access point in front of the centre of the face. That fails every sofa with a coffee table in front of it: the nearest reachable cell is about 0.85 m from the point, although both ends of the sofa are open.) For items with `rot_symmetry > 1` there is one access line on **every equivalent face** (two for `rot_symmetry = 2`, four for `rot_symmetry = 4`), and the item counts as reachable if **any** of them is, because the canonical rotation is arbitrary among equivalent faces. Otherwise a side table stored at `r = 0` and pushed against the north wall would fail H4, and a coffee table with a sofa in the narrow gap on its stored front side would fail although its other side is open. Items with `needs_access: false` in the catalog (for example the `tv_unit`, a floor-standing unit viewed from a distance) are skipped.
 7. The **reachability ratio** = reachable items / items that need access; H4 requires 1.0.
 
 ### 3.4 Quality score `S in [0,1]` (soft)
@@ -155,15 +163,17 @@ Default weights `(0.30, 0.30, 0.25, 0.15)` **(assumption, configurable)**.
 
 | Term | Definition |
 |---|---|
-| `S_align` | Fraction of items that should sit against a wall which are within 0.10 m of it and correctly oriented (orientation is checked only for items with `rot_symmetry = 1`; symmetric items are judged by position only) |
-| `S_rel` | Mean of relation scores, for example: sofa faces the TV unit (angle error small) and their distance lies within the configured range; coffee table lies between them; bed headboard against a wall; nightstands beside the bed |
-| `S_circ` | Fraction of free floor cells that are passable (walkability) |
-| `S_space` | Peak score when furniture area / room area is inside a target band (for example 0.15 to 0.40), falling off linearly outside it **(assumption)** |
+| `S_align` | Fraction of the items that should sit against a wall (living room: TV unit and bookshelf; the sofa is exempt because style (b) floats it) which are within 0.10 m of a wall with their back to it (orientation is checked only for items with `rot_symmetry = 1`; symmetric items are judged by position only) |
+| `S_rel` | Mean of the relation scores that apply; a relation is skipped when one of its items is absent. Living room **(assumption)**: sofa and TV unit face each other with the TV unit within the sofa's width, front faces 1.5 to 3.5 m apart; the coffee table in front of the sofa, 0.35 to 0.50 m from its front face; the side table beside an end of the sofa, at most 0.15 m from it; the armchair at 90 degrees to the sofa, facing the coffee table, at most 1.2 m from it. A relation scores 1 inside its range, falls linearly to 0 at 0.5 m outside it, and is 0 when the arrangement itself is wrong (for example the TV unit facing away) |
+| `S_circ` | Fraction of free floor cells that are passable (walkability). Known issue: cells within 0.3 m of a wall are never passable, so even an empty room scores only 0.68 (3.5 x 3.0 m) to 0.83 (7 x 6 m), which favours large rooms in comparisons across rooms (open decision T8, Section 11) |
+| `S_space` | 1 while furniture area / room area lies inside 0.15 to 0.40, falling linearly to 0 at 0.15 outside the band (so 0 for an empty room and at 55% coverage) **(assumption)** |
 
 All distance and angle ranges live in `configs/rules.yaml` and are documented as our assumptions.
 
 ### 3.5 Feasibility pre-check
-Reject early if `sum(footprint areas) > f_max * (room area - door clearance area)` with `f_max` calibrated from the generator's acceptance rate (start `0.45` **(assumption)**; this is too generous for the smallest rooms: all six items total about 4.12 m² against a 4.36 m² limit in a 10.5 m² room, yet most such layouts fail the 0.6 m path rule), or if the cheapest selection exceeds the budget. Return a message with a suggestion (remove an optional item or choose a smaller variant).
+Reject early if `sum(footprint areas) > f_max * (room area - door clearance area)` with **`f_max = 0.38`**, or if the cheapest selection exceeds the budget. Return a message with a suggestion (remove an optional item or choose a smaller variant).
+
+`f_max` was calibrated on dataset v1 (T15). 3,903 rooms were spread evenly over the footprint ratio, with each optional item present with probability 0.5 whatever the room's size, because rooms drawn at random are almost never crowded. A logistic fit of "the generator furnished the room within 20 attempts" against the ratio crosses one half at 0.377 (`reports/figures/dataset_v1_f_max.png`). The starting value 0.45 was too generous: all six items (about 4.12 m²) would pass in a 10.5 m² room, where most such layouts fail the path rule. With 0.38 they are turned away below about 11.7 m² of floor. The calibration uses the generator's own styles, so a request it cannot furnish might still be possible with another arrangement; state this in the report.
 
 ---
 
@@ -228,7 +238,7 @@ L       = mean_batch( L_recon ) + beta * mean_batch( KL )
 |---|---|
 | 0 | Room mask (coverage of the room) |
 | 1 | Furniture coverage, **summed over items and not clipped**, so an overlap shows up as values above single-item coverage |
-| 2 | Front-face strip (thin band along each item's front edge, encodes orientation). For items with `rot_symmetry > 1` the strip is drawn on **all equivalent faces**, so the raster carries no arbitrary orientation for them |
+| 2 | Front-face strip (a band 0.10 m thick inside each item's front edge, about 1.6 pixels; encodes orientation). For items with `rot_symmetry > 1` the strip is drawn on **all equivalent faces**, so the raster carries no arbitrary orientation for them |
 | 3 | Door and door-clearance zone |
 
 **Resolution caveat:** the checker tolerates 0.005 m² of overlap. That is about 1.3 pixels of area, but along a 0.9 m edge it is a strip roughly 6 mm wide, a tenth of a pixel. Fractional coverage makes such a strip visible in principle (it changes the pixel values by about 0.1), but it sits at the limit of what the CNN can learn. The checker stays the authority, and F1 is reported separately for near-miss samples (see Metrics).
@@ -249,6 +259,8 @@ About 0.59 M parameters.
 
 **Training time and hardware.** A reviewer measured evaluator training at 128 x 128, batch 256, on 42k samples: about 2,600 samples/s (16 s per epoch) on the RTX 3050 and about 300 samples/s (140 s per epoch) on the CPU, before the extra cost of rasterizing on the CPU. The evaluator therefore needs the GPU; on CPU, use a reduced setting (64 x 64 raster, fewer samples, about 12 epochs fit in 30 minutes). The CVAE, latent optimization, rules and app are small enough for CPU. Re-measure on your own machines on Day 1, and schedule the single GPU explicitly (Development_Plan Section 2).
 
+Our own measurement (T01, `python run.py check-env`, deterministic mode, same model and batch): about 1,960 samples/s on the RTX 3050 6 GB laptop GPU (21 s per 42k-sample epoch, 84 epochs in 30 minutes, 1.4 GiB peak memory) and 100 to 300 samples/s on the CPU (140 to 430 s per epoch, varying from run to run). Rasterizing on the GPU takes 3.6 ms for 64 layouts and 5.7 ms for 256.
+
 **Loss:** `L_eval = BCE(valid) + lambda_s * Huber_or_MSE(score)`, `lambda_s = 1` **(start)**. The score loss is applied on all samples (score is defined for invalid layouts too).
 
 **Metrics:** accuracy, precision, recall, F1, ROC-AUC, confusion matrix on valid vs invalid; Spearman correlation of predicted score against rule score. **Report F1 separately for each Set B perturbation type** (jitter levels, rotation change, random placement, forced overlap, near-miss); an overall F1 alone hides the hard cases.
@@ -261,12 +273,12 @@ About 0.59 M parameters.
 
 | ID | Method | Description |
 |---|---|---|
-| B1 | Uniform random | Each item's centre uniform in the room, rotation uniform over 4 classes |
-| B2 | Statistical sampling | From Set A train data, fit per-slot empirical distributions of `(u, v, r)` conditioned on room type and door wall bins (histogram or KDE); sample items sequentially; no neural network |
+| B1 | Uniform random | Each item's centre uniform over the positions where its footprint lies inside the room (so B1 does not fail on the walls alone), rotation uniform over 4 classes |
+| B2 | Statistical sampling | From Set A train data, per slot the empirical joint `(u, v, r)` grouped by door wall and room-size bin (3 x 3 bins of equal shares of the training widths and depths; pooled over sizes, then over door walls, when a bin has fewer than 20 examples). A drawn `(u, v)` gets N(0, 0.02^2) noise. Items are placed one after another in slot order and drawn again, up to 10 times, while one overlaps an item already placed or sticks out of the room; no neural network. Without the out-of-room redraw B2 fails mostly on H1, because positions taken as fractions of a larger training room put wall items through a smaller room's wall (20% vs 58% raw valid on v1; the redraw was chosen) |
 | M1 | CVAE only | Sample `z ~ N(0, I)`, decode |
 | M2 | CVAE + latent optimization | M1 followed by the procedure in 5.2 |
 | M3 (P1) | CVAE + latent optimization + CNN surrogate | M2 with the extra term `- lambda_c * q_hat` (needs the differentiable raster) |
-| G0 | Procedural generator (reference) | The Set A generator with rejection sampling. Not a learned model and valid by construction, so it is a reference and is **not part of the validity comparison** (goal G2 is limited to B1 and B2). Its raw valid rate is defined as its **acceptance rate per attempt**. Report its **cost per valid layout** (attempts and seconds) and its diversity (the reference for the diversity ratio) |
+| G0 | Procedural generator (reference) | The Set A generator with rejection sampling. Not a learned model and valid by construction, so it is a reference and is **not part of the validity comparison** (goal G2 is limited to B1 and B2). Its raw valid rate is defined as its **acceptance rate per attempt**: in evaluation it runs single attempts, so its raw samples are attempts. Report its **cost per valid layout** (attempts and seconds) and its diversity (the reference for the diversity ratio) |
 | G0-pin (P1) | Procedural generator with a pin | Run the generator, move the pinned item to the requested position, then filter with the checker (repeat until valid or a cap). The strongest non-neural baseline for E12 |
 
 All methods report raw validity (no filtering) and yield after filtering, with identical numbers of samples per input.
@@ -358,6 +370,16 @@ Active units   = # { j : mean_val KL_j > 0.01 }
 ```
 `K` is the set of slots present in both layouts. Layouts are compared **after canonicalization**: for interchangeable groups take the minimum over permutations, and count a rotation mismatch only for slots with `rot_symmetry = 1` (compare modulo the symmetry otherwise), so meaningless flips do not inflate diversity. **Diversity ratio** = Diversity(method) / Diversity(G0 reference set), both over valid layouts for the same condition. **Cost per valid layout** = (time spent on sampling, optimization and checking) / (number of valid layouts produced). For G0 the raw valid rate is its acceptance rate per attempt, and G0 is left out of the validity comparison. **Expect G0 to be cheaper per valid layout than M2** for requests without a pin, because M2 makes the same checker calls plus 150 decoder passes. The learned approach has to earn its place through pinned completion (E12), amortized sampling and differentiable repair, and we report the numbers whichever way they fall.
 
+**Evaluation protocol (T16, `spacegen/evaluate.py`).** Every method gets the same 500 rooms (the 200 diversity-reference rooms of the Set A test split, then 300 more test rooms at random) and 64 raw samples per room (`configs/default.yaml`, `evaluation`). The diversity ratio is taken over the rooms where both the method and the G0 reference have at least two valid layouts. G0's outputs are valid by construction, so its overlap and reachability are not reported. Baselines on v1 (`reports/tables/baselines.csv`):
+
+| Method | RVR | Mean overlap | Reachability | Quality (valid) | Diversity ratio | Cost per valid layout |
+|---|---|---|---|---|---|---|
+| B1 | 10.1% | 0.21 m² | 0.55 | 0.29 | 0.98 | 9.9 attempts, 20 ms |
+| B2 | 57.8% | 0.002 m² | 0.70 | 0.55 | 1.02 | 1.7 attempts, 4 ms |
+| G0 | 74.7% per attempt | n/a | n/a | 0.88 | 1.00 | 1.3 attempts, 2 ms |
+
+B2 avoids collisions but not bad arrangements (quality 0.55 against G0's 0.88), so E1 must compare quality as well as validity. The diversity ratio barely separates these methods.
+
 ---
 
 ## 8. Math appendix (viva preparation)
@@ -405,11 +427,17 @@ spacegen/
   spacegen/
     geometry.py       boxes, rotation, overlap (NumPy and PyTorch versions)
     catalog.py        load and query catalog
-    rules.py          hard checks, reachability, quality score
-    generator.py      procedural dataset generator (Set A, Set B)
+    layout.py         one layout as arrays, canonical form, layout JSON
+    rules.py          door, hard checks, reachability, feasibility ratio
+    quality.py        quality score S
+    generator.py      procedural generator (Set A styles, G0)
+    perturb.py        Set B perturbations and labels
+    splits.py         splits, held-out regions and sets, diversity reference
+    build_dataset.py  dataset build, f_max calibration, metadata and hash
     raster.py         layout to 4-channel raster
-    dataset.py        PyTorch datasets, normalization, splits
-    baselines.py      B1, B2, G0, G0-pin
+    dataset.py        layout vectors, storage, tensors for training
+    baselines.py      B1, B2, G0 (G0-pin later)
+    evaluate.py       evaluation harness for any sampler
     models/cvae.py
     models/evaluator.py
     models/mlp_baseline.py
@@ -425,8 +453,10 @@ spacegen/
   tests/
   reports/            figures/, tables/
   data/               generated datasets (gitignored, regenerate by seed)
-  README.md, requirements.txt, Makefile
+  README.md, requirements.txt, run.py, Makefile
 ```
+
+`run.py` is the task runner (`python run.py <task>`: test, check-env, generator-report, set-b-report, data, baselines, with more added per task); Windows has no `make`, so the Makefile only forwards to it.
 
 ### 9.2 Configuration
 YAML files with a single `seed` and per-experiment overrides. Every training run writes its config, seed, git commit and dataset hash next to the checkpoint.
@@ -452,7 +482,7 @@ YAML files with a single `seed` and per-experiment overrides. Every training run
 | Latent optimization: final constraint loss is lower than the initial loss for at least 90% of candidates | Sensible acceptance test (Adam is not monotone) |
 
 ### 9.4 Tooling
-Python 3.10 or newer; PyTorch (CUDA build if it works, otherwise CPU); NumPy; SciPy (distance transform); scikit-learn (metrics); pandas; Matplotlib; Streamlit; PyYAML; pytest. Plotly for the optional 3D view. Random seeds set for Python, NumPy and PyTorch.
+Python 3.11 or newer (tested on 3.12.5; the pinned NumPy 2.4 and SciPy 1.17 need 3.11); PyTorch (CUDA build if it works, otherwise CPU); NumPy; SciPy (connected components for reachability, the logistic fit for `f_max`); scikit-learn (metrics); pandas; Matplotlib; Streamlit; PyYAML; pytest; ipykernel, nbformat and nbclient for the notebooks. Plotly for the optional 3D view. Versions are pinned in `requirements.txt`. Random seeds set for Python, NumPy and PyTorch.
 
 ### 9.5 Streamlit app
 Sidebar inputs: room type, `W`, `D`, door wall and offset, furniture selection and variants, budget, number of candidates, latent optimization on or off, optional pinned item position and facing. Main area: top-3 layouts with metrics; a "Compare methods" tab (B1, B2, G0, M1, M2 on the same input); a "Training and results" tab showing saved figures. Export buttons for JSON and PNG.
@@ -484,6 +514,7 @@ Sidebar inputs: room type, `W`, `D`, door wall and offset, furniture selection a
 | T5 | Latent size | 16 | E5 |
 | T6 | Optimization steps | 150 | E8 |
 | T7 | Bedroom in scope | No (P2); pinned furniture has priority | Development_Plan cut list |
+| T8 | Circulation term `S_circ` | Spec definition (passable over free cells; an empty room scores 0.68 to 0.83 depending on its size) | Before E10: divide by the same room's value when empty, so that every room can reach 1, if results are compared across room sizes |
 
 ---
 
@@ -520,3 +551,17 @@ Sidebar inputs: room type, `W`, `D`, door wall and offset, furniture selection a
 - Hardware: the evaluator needs the GPU (measured 16 s vs 140 s per epoch); the CPU fallback holds for the CVAE only, with a reduced evaluator setting otherwise.
 - Reproducibility: deterministic-mode seed helper (three settings) added; final checks are exact equality on the same machine, with a stated tolerance across machines.
 - Leftover wording fixed (see PRD, Architecture and Development Plan change notes).
+
+**v1.4 (implementation up to Gate 1: decisions taken while building T01 to T17)**
+- Reachability (3.3): an item is reached through an **access line** along its whole front face, not a single point; the point failed every sofa with a coffee table in front. Distances are exact, and the corridor behaviour around 0.6 m is stated.
+- Quality score (3.4): the four living-room relations and their ranges are defined, with a 0.5 m linear falloff and relations skipped when an item is absent; `S_space` falls to 0 at 0.15 outside its band; the sofa is exempt from `S_align`. The ceiling of `S_circ` (0.68 to 0.83 for an empty room) is recorded as open decision T8.
+- Catalog (2.1): `rot_symmetry: 4` items must be square. Only the living room exists; the bedroom (P2) needs heights, prices and the bed's facing, and interchangeable groups are canonicalized only once it is built.
+- Encoding (2.3): door one-hot order N, E, S, W; `x` slot after slot; decoding reduces the rotation arg-max to canonical form.
+- Set A generator (2.4): the three styles are defined with the rooms they fit (a wall sofa needs an axis of 2.9 to 4.8 m); optional items appear with probability 0.25 to 0.75 by floor area; anchors in the frame of the wall behind the sofa, whose position is drawn from where every dependent item fits; the room stays fixed for up to 20 attempts. Every Set A layout scores 1.0 on alignment and relations.
+- Set B (2.4): exact shares per type; the overlap near-miss range is 0.002 to 0.0125 m², log-uniform (was 0.002 to 0.05 m², which would make at least 70% of them invalid); door near-misses within 3 cm of the zone; near-miss moves touch nothing else and keep every item reachable. v1 is 62% valid.
+- Splits and storage (2.4): held-out regions are excluded from Set A and Set B by drawing rooms again; held-out sets of 1,000 rooms; per-part random streams and a content hash that a rebuild reproduces exactly.
+- Feasibility (3.5): `f_max = 0.38`, calibrated on rooms spread over the footprint ratio (logistic crossing at 0.377).
+- Raster (4.2): front band 0.10 m; own hardware measurements added (21 s per epoch on the GPU, 140 to 430 s on the CPU).
+- Baselines (4.3): B1 keeps items inside the room; B2 is specified, including redraws while an item overlaps another or sticks out of the room (20% vs 58% raw valid); G0 runs single attempts in evaluation.
+- Metrics (7): evaluation protocol (500 rooms, 64 samples each) and the v1 baseline table.
+- Tooling (9): Python 3.11 or newer; `run.py` task runner; notebook packages; repository structure updated.

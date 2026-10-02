@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.3 (revised after three technical reviews) |
+| Version | 1.4 (Week 1 built; Gate 1 review in `reports/gate1.md`; change notes in Section 12) |
 | Team | [Member A] (ML and geometry lead), [Member B] (data, rules and app lead) |
 | Duration | 21 days. "Day 1" is the day you start. |
 | Companion docs | PRD.md, Tech_Spec.md, Architecture.md |
@@ -53,7 +53,8 @@ The P0 plan uses almost all of the available time. The buffer tasks (T48, and Da
 - **Definition of done (any task):** code merged, tested where a test is listed, documented in the README or a docstring, and its output (table or figure) saved in `reports/`.
 - **Cross-teaching:** Day 7, Day 14 and Day 18. Each member explains the *other's* modules and derives two formulas on paper.
 - **Seeds and configs:** every run saves its config, seed and dataset hash. Never hard-code hyperparameters. The seed helper enables PyTorch deterministic mode (Tech Spec Section 9.2), so repeated runs on the same machine are bit-identical.
-- **Compute:** keep datasets on the GPU as tensors (no `DataLoader`). The LOQ's GPU is the only GPU, so schedule it explicitly: the evaluator needs it (about 16 s per epoch on the RTX 3050 vs about 140 s on CPU, a reviewer's measurement; re-measure on Day 1), while CVAE screening, latent optimization, rules and the app run fine on CPU on the second laptop. Launch long sweeps before leaving for the day.
+- **Compute:** keep datasets on the GPU as tensors (no `DataLoader`). The LOQ's GPU is the only GPU, so schedule it explicitly: the evaluator needs it (measured in T01 in deterministic mode: 21 s per epoch on the RTX 3050 6 GB vs 140 to 430 s on the CPU), while CVAE screening, latent optimization, rules and the app run fine on CPU on the second laptop. Launch long sweeps before leaving for the day.
+- **Tasks:** every reproducible step is a task of `run.py` (`python run.py <task>`), because Windows has no `make`; where `make` exists, `make <task>` forwards to it. The `make figures` and `make all` below mean the matching `run.py` tasks.
 - **Actual hours:** log the actual hours for every task. At Gate 1 and Gate 2, if actual hours are more than 15% above planned, start the reduction ladder (Section 10) at step 1 immediately.
 - **Do not copy repository code.** Read papers and repos for ideas; write our own code and cite them.
 
@@ -73,9 +74,9 @@ The P0 plan uses almost all of the available time. The buffer tasks (T48, and Da
 | T08 | Reachability H4: distance transform, start at the **door clearance centre**, `scipy.ndimage.label`, access points on **every equivalent face** for items with `rot_symmetry > 1` | B | P0 | M | T05 | Empty room passes; blocked door and walled-off item fail; start cell passable; a side table against the north wall passes |
 | T09 | Quality score `S` (alignment, relations, circulation, space); orientation terms skip items with `rot_symmetry > 1` | B | P0 | M | T08 | Score in [0,1]; sensible on 5 hand-made good and bad layouts |
 | T10 | `dataset.py`: encode `x` and `c`, normalization, presence masks, **canonicalization**, tensors on GPU | A | P0 | M | T02, T03 | Round-trip encode then decode reproduces the canonical layout |
-| T11 | `generator.py`: living-room styles with jitter, **area-dependent item subsets**, canonical labels, rejection through the checker; log rejection by area bin and item count | B | P0 | L | T05, T08 | 100% of Set A layouts pass the checker; rejection plot exists; canonicalization test passes |
+| T11 | `generator.py`: living-room styles (a), (b) and (c) with jitter, **area-dependent item subsets**, canonical labels, rejection through the checker; log rejection by area bin and item count. *v1.4: styles (b) and (c) moved here from T13, because style (a) cannot keep the sofa-TV distance in range in about a quarter of rooms* | B | P0 | L | T05, T08 | 100% of Set A layouts pass the checker; rejection plot exists; canonicalization test passes |
 | T12 | `baselines.py`: B1 uniform random; B2 statistical sampler; G0 wrapper around the generator | A | P0 | M | T10, T11 | All three return layouts for any condition vector |
-| T13 | Generator styles (b), (c); Set B perturbations including **near-miss**; perturbation type stored per sample | B | P0 | M | T11 | Set B roughly balanced valid vs invalid; per-type counts logged |
+| T13 | Set B perturbations including **near-miss**; perturbation type stored per sample (*v1.4: the styles were built in T11*) | B | P0 | M | T11 | Set B roughly balanced valid vs invalid; per-type counts logged |
 | T14 | Splits: 70/15/15, plus separately sampled interpolation, unseen-combination, out-of-range and G0 reference sets | A | P0 | S | T10 | Split files saved; no leakage (asserted in a test) |
 | T15 | Generate dataset v1 (Set A about 30k, Set B about 60k); metadata and hash; histograms; **calibrate `f_max`** from the acceptance rate | B | P0 | M | T13, T14 | `data/v1/` complete; histograms of room area, item counts, valid ratio, rejection rate saved |
 | T16 | Baseline evaluation harness (build on a 2k-sample mini dataset earlier), then run B1, B2, G0 on dataset v1: RVR, overlap, reachability, quality, diversity, cost per valid layout | A | P0 | M | T12, T15 | `reports/tables/baselines.csv` exists |
@@ -94,7 +95,9 @@ The P0 plan uses almost all of the available time. The buffer tasks (T48, and Da
 | 6 | T17 | T15 (dataset v1 must be finished by the end of Day 6) |
 | 7 | T16 (final numbers), T18 | T18; fix any generator issues |
 
-**Gate 1 fallbacks (if behind on Day 7):** drop generator style (c); postpone Set B perturbation types (iii) and (iv); keep reachability but simplify access points. Pinned furniture, real rooms, bedroom and 3D wait until Gate 2 passes comfortably.
+**As built (v1.4):** the tasks ran in the order T01 to T11, T13, T14, T15, T12, T16, T17, because B2 is fitted on the training split of dataset v1. The harness for T16 was tested on a tiny dataset built inside the tests.
+
+**Gate 1 fallbacks (if behind on Day 7):** drop generator style (c); postpone Set B perturbation types (iii) and (iv); keep reachability but simplify access points. Pinned furniture, real rooms, bedroom and 3D wait until Gate 2 passes comfortably. *(Not needed in v1.4: all styles, perturbation types and access checks were built.)*
 
 ---
 
@@ -198,14 +201,14 @@ T50 and T40 have no fixed day: do them only in gaps and only if Gate 2 was comfo
 
 ## 7. Checkpoint checklists
 
-**Gate 1 (Day 7)**
-- [ ] Geometry (including containment gradient), rules, door placement and rasterizer tests pass
-- [ ] Reachability passes on an empty room and the start cell is passable
-- [ ] Every Set A layout passes the checker and is canonical (asserted)
-- [ ] Dataset v1 generated, hashed, split, with separately sampled held-out sets
-- [ ] Histograms and the rejection-rate plot saved; `f_max` calibrated
-- [ ] B1, B2 and G0 baseline numbers saved (including cost per valid layout)
-- [ ] Manual backprop notebook matches autograd
+**Gate 1 (Day 7)** (evidence for each box in `reports/gate1.md`)
+- [x] Geometry (including containment gradient), rules, door placement and rasterizer tests pass
+- [x] Reachability passes on an empty room and the start cell is passable
+- [x] Every Set A layout passes the checker and is canonical (asserted)
+- [x] Dataset v1 generated, hashed, split, with separately sampled held-out sets
+- [x] Histograms and the rejection-rate plot saved; `f_max` calibrated
+- [x] B1, B2 and G0 baseline numbers saved (including cost per valid layout)
+- [x] Manual backprop notebook matches autograd
 - [ ] Each member can explain the other's Week 1 modules
 - [ ] Actual hours logged for Week 1 tasks; if more than 15% over planned, start the reduction ladder now
 
@@ -295,7 +298,7 @@ Formulas (Tech Spec Section 8), architecture diagrams, results table (E1), list 
 4. Bedroom domain (T32)
 5. Feature-MLP comparison (T24, T31)
 6. E6 dropout sweep and extra learning rates in E4 (keep at least Adam vs SGD)
-7. Generator styles beyond (a)
+7. Generator styles beyond (a) (already built in T11, so nothing left to cut here)
 8. Pinned furniture (T38) is the **last** extra to drop, because it is the strongest argument for the learned approach
 
 Never cut: the checker, dataset v1, baselines including G0, CVAE, evaluator, E1, E2, E3a, the report appendix, and viva preparation.
@@ -330,3 +333,15 @@ Applying the whole ladder closes the gap exactly and leaves **no slack**, so tre
 - [ ] Report (with math appendix, limitations, ethics, references)
 - [ ] Demo app and screenshots as backup
 - [ ] Viva cheat sheet printed or on a phone
+
+---
+
+## 12. Change notes
+
+**v1.4 (Week 1 built, Gate 1 review)**
+- T11 builds all three generator styles; T13 keeps only the Set B perturbations. Style (a) alone cannot keep the 1.5 to 3.5 m sofa-TV distance in about a quarter of rooms (Tech Spec 2.4).
+- Week 1 ran in the order T01 to T11, T13, T14, T15, T12, T16, T17: B2 is fitted on the training split of dataset v1.
+- Gate 1: seven of nine boxes ticked with evidence in `reports/gate1.md`; the cross-teaching session and the hours log remain.
+- Compute measured in T01 (21 s per evaluator epoch on the GPU, 140 to 430 s on the CPU) replaces the reviewer's figures.
+- `run.py` is the task runner; `make` forwards to it where it exists.
+- Technical decisions taken while building (reachability access line, near-miss range, `f_max = 0.38`, baseline details) are in the Tech Spec v1.4 change log.
