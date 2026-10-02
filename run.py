@@ -48,6 +48,10 @@ TASKS: dict[str, tuple[str, list[list[str]]]] = {
         "metrics of a trained evaluator on the Set B test split (E9a; --run NAME, default e9a)",
         [[PY, "-m", "spacegen.evaluator_report"]],
     ),
+    "generate": (
+        "the top layouts for one room, e.g. --width 5 --depth 4 --door W --items sofa,tv_unit,coffee_table",
+        [[PY, "-m", "spacegen.pipeline"]],
+    ),
 }
 
 

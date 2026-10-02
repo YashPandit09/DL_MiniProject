@@ -104,3 +104,24 @@ cvae_training:         # (T21, Tech Spec 4.1) python run.py train-cvae
   early_stopping: true # (spec) E6 compares it with training for max_epochs
   check_rooms: 100     # (T21) after training, Set A test rooms to sample (64 each) for a first
                        # RVR of M1; the E1 numbers come later, on the frozen configuration
+
+latent_opt:            # M2: optimize z with the decoder frozen (T23, Tech Spec 5.2)
+  steps: 150           # (spec, start) T; E8 tries 0, 25, 50, 100 and 200
+  lr: 0.05             # (spec, start) Adam
+  lambda_overlap: 10.0 # (spec, start) sum over pairs of the squared penetration depth
+  lambda_room: 10.0    # (spec, start) protrusion out of the room
+  lambda_door: 10.0    # (spec, start) squared penetration into the door clearance zone
+  lambda_pin: 20.0     # (spec, start) squared distance of pinned items from their pins
+  lambda_anchor: 0.05  # (spec, start) 0.5 ||z - z0||^2, the anchor to each candidate's start
+  lambda_surrogate: 0.0  # (spec) the CNN score term of M3 (P1); 0 for M2
+  margin: 0.05         # (spec, start) clearance margin mu of the penetration depths (m)
+  tolerance: 1.0e-4    # (T23) a candidate stops once its constraint terms (the anchor not
+                       # counted, since it grows whenever z moves) fall below this
+
+pipeline:              # (T25, Tech Spec 5.1 and 5.3)
+  candidates: 64       # (spec) N latent samples per request
+  latent_opt: true     # (spec) M2; false gives M1
+  top_k: 3             # (spec)
+  tau_div: 0.3         # (spec, start) a pick must differ from every earlier pick by this much (m)
+  relax: 0.25          # (spec) when fewer than top_k qualify, tau_div shrinks by this share ...
+  relax_times: 2       # (spec) ... up to this many times

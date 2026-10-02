@@ -1,0 +1,92 @@
+{
+  "room": {
+    "type": "living_room",
+    "width": 5.0,
+    "depth": 4.0
+  },
+  "door": {
+    "wall": "W",
+    "offset": 0.5,
+    "width": 0.9
+  },
+  "items": [
+    {
+      "slot": 0,
+      "id": "sofa_3seater",
+      "w": 2.1,
+      "d": 0.9,
+      "h": 0.85,
+      "x": 3.115237057209015,
+      "y": 3.013007640838623,
+      "rotation": 2,
+      "price": 28000
+    },
+    {
+      "slot": 1,
+      "id": "tv_unit_large",
+      "w": 1.8,
+      "d": 0.4,
+      "h": 0.5,
+      "x": 3.08414489030838,
+      "y": 0.28146862983703613,
+      "rotation": 0,
+      "price": 12000
+    },
+    {
+      "slot": 2,
+      "id": "coffee_table_standard",
+      "w": 1.0,
+      "d": 0.55,
+      "h": 0.45,
+      "x": 3.114524185657501,
+      "y": 2.0148935317993164,
+      "rotation": 0,
+      "price": 6000
+    },
+    {
+      "slot": 3,
+      "id": "bookshelf_standard",
+      "w": 0.8,
+      "d": 0.3,
+      "h": 1.8,
+      "x": 0.22656794637441635,
+      "y": 2.897676706314087,
+      "rotation": 1,
+      "price": 7000
+    },
+    {
+      "slot": 4,
+      "id": "armchair_standard",
+      "w": 0.8,
+      "d": 0.8,
+      "h": 0.85,
+      "x": 4.561468958854675,
+      "y": 2.115081787109375,
+      "rotation": 3,
+      "price": 8000
+    },
+    {
+      "slot": 5,
+      "id": "side_table_standard",
+      "w": 0.45,
+      "d": 0.45,
+      "h": 0.5,
+      "x": 1.804940402507782,
+      "y": 3.2312042713165283,
+      "rotation": 0,
+      "price": 2500
+    }
+  ],
+  "metrics": {
+    "rank": 1,
+    "valid": true,
+    "quality": 0.85,
+    "evaluator_score": 0.8231,
+    "evaluator_valid": 0.9799
+  },
+  "meta": {
+    "method": "M2",
+    "seed": 0,
+    "cvae": "Y:\\UAIU\\Notes\\SEM 5\\Deep Learning\\MiniProject\\runs\\cvae\\default"
+  }
+}

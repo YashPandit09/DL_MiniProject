@@ -50,6 +50,7 @@ does the same thing.
 | `python run.py train-evaluator` | Train the CNN evaluator on Set B on the GPU (one epoch by default; `--epochs N --name RUN`); writes `runs/evaluator/RUN/` with `run.json` (seed, configs, git commit, dataset hash), `log.csv` and `model.pt` |
 | `python run.py train-cvae` | Train the CVAE on Set A (about 1.5 minutes on the GPU): KL annealing, early stopping, per-epoch log with gradient norms, dead and active units, and a first M1 check; `--name RUN --set cvae.<field>=<value>` for the experiments |
 | `python run.py evaluator-report` | E9a metrics of the evaluator in `runs/evaluator/e9a/` on the Set B test split: `reports/tables/evaluator.csv`, `evaluator_per_type.csv`, `reports/figures/evaluator_confusion.png` |
+| `python run.py generate --width 5 --depth 4 --door W --items sofa,tv_unit,coffee_table` | The pipeline for one room (M2 by default; `--budget`, `--no-latent-opt`, `name:variant` items): the top 3 as JSON and PNG in `reports/demo/` |
 | `python -m spacegen.viz layout.json layout.png` | Draw a layout JSON as a floor plan with its hard-check results |
 
 ## Reproducibility
@@ -103,3 +104,7 @@ does the same thing.
   latent units active, no dead units; first M1 check 12% raw valid (before tuning and latent optimization)
 - [x] T22 Evaluator, E9a (30 epochs, best epoch 26): test accuracy 96.6%, F1 0.973, ROC-AUC 0.991; hardest
   type near-miss overlap (accuracy 81%); Spearman with the rule score 0.66
+- [x] T23 Latent optimization (`spacegen/latent_opt.py`, M2): on 100 test rooms x 64 samples, raw valid
+  12% (M1) to 65% (M2); 99.6% of the candidates that needed repair end with a lower loss
+- [x] T25 Pipeline (`spacegen/pipeline.py`, `python run.py generate`): request checks, variants within
+  the budget and f_max, M2 sampling, checks, evaluator ranking, diverse top 3; about 1.5 s per request
