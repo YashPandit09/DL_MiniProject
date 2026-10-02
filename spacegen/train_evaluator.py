@@ -6,12 +6,14 @@ python run.py train-evaluator --epochs 20 --name e9a
 Set B stays on the device as layout tensors and is rasterized mini-batch by mini-batch on the
 GPU (Tech Spec 4.2). The validation split is scored before the first epoch and after every
 epoch, so the log shows whether the loss falls. A run writes runs/evaluator/<name>/: run.json
-(seed, configs, git commit, dataset hash), log.csv (one row per epoch) and model.pt.
+(seed, configs, git commit, dataset hash), log.csv (one row per epoch), model.pt (the epoch with
+the best validation loss) and summary.json.
 """
 from __future__ import annotations
 
 import argparse
 import dataclasses
+import json
 import sys
 import time
 from dataclasses import dataclass
@@ -106,6 +108,7 @@ def train_evaluator(data_dir: Path, out_dir: Path, epochs: int, seed: int, devic
     history = [{"epoch": 0, "seconds": 0.0, **scored("validation", run_epoch(model, data, rows["validation"], raster,
                                                                              config))}]
     log(f"epoch 0 (untrained): validation loss {history[0]['validation_loss']:.4f}")
+    best_loss, best_epoch, best_state = float("inf"), None, None
     for epoch in range(1, epochs + 1):
         start = time.perf_counter()
         train = run_epoch(model, data, rows["train"], raster, config, optimizer, shuffle)
@@ -113,13 +116,20 @@ def train_evaluator(data_dir: Path, out_dir: Path, epochs: int, seed: int, devic
             torch.cuda.synchronize()
         seconds = time.perf_counter() - start
         validation = run_epoch(model, data, rows["validation"], raster, config)
+        improved = validation["loss"] < best_loss
+        if improved:  # keep the best epoch: single epochs can spike (BatchNorm running statistics)
+            best_loss, best_epoch = validation["loss"], epoch
+            best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
         history.append({"epoch": epoch, "seconds": round(seconds, 1), **scored("train", train),
-                        **scored("validation", validation)})
+                        **scored("validation", validation), "best": improved})
         log(f"epoch {epoch}: {seconds:.0f} s; train loss {train['loss']:.4f}; validation loss "
-            f"{validation['loss']:.4f}, accuracy {validation['accuracy']:.3f}")
+            f"{validation['loss']:.4f}, accuracy {validation['accuracy']:.3f}{'; best' if improved else ''}")
     table = pd.DataFrame(history)
     table.to_csv(out_dir / "log.csv", index=False, lineterminator="\n")
-    torch.save(model.state_dict(), out_dir / "model.pt")
+    torch.save(best_state if best_state is not None else model.state_dict(), out_dir / "model.pt")
+    summary = {"epochs": epochs, "selected_epoch": best_epoch, "selected_validation_loss": best_loss,
+               "parameters": sum(p.numel() for p in model.parameters())}
+    (out_dir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8", newline="\n")
     return table
 
 

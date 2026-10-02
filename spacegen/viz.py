@@ -251,6 +251,35 @@ def plot_f_max(calibration, f_max: float | None, coefficients, configured: float
     return fig
 
 
+def plot_confusion(metrics: dict, run: str) -> Figure:
+    """The evaluator's confusion matrix on the Set B test split (T22): counts, and shares of each
+    true class, shaded by that share. `metrics` comes from evaluator_report.overall_metrics."""
+    counts = np.array([[metrics["true_valid"], metrics["false_invalid"]],
+                       [metrics["false_valid"], metrics["true_invalid"]]])  # rows: checker; columns: evaluator
+    shares = counts / counts.sum(axis=1, keepdims=True)
+    fig = Figure(figsize=(5.2, 4.3), dpi=150, facecolor=SURFACE, layout="constrained")
+    ax = fig.add_subplot()
+    ax.imshow(shares, cmap=COVERAGE, vmin=0, vmax=1)
+    for i in range(2):
+        for j in range(2):
+            ax.text(j, i, f"{counts[i, j]:,}\n{shares[i, j]:.1%}", ha="center", va="center", fontsize=9,
+                    color=SURFACE if shares[i, j] > 0.6 else INK)
+    labels = ["valid", "invalid"]
+    ax.set_xticks([0, 1], labels)
+    ax.set_yticks([0, 1], labels)
+    ax.set(xlabel="the evaluator says", ylabel="the checker says")
+    ax.tick_params(labelsize=8, colors=INK_SECONDARY, length=0)
+    ax.xaxis.label.set(fontsize=8, color=INK_SECONDARY)
+    ax.yaxis.label.set(fontsize=8, color=INK_SECONDARY)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    fig.suptitle(f"Evaluator ({run}) on the Set B test split, {int(counts.sum()):,} layouts\n"
+                 f"accuracy {metrics['accuracy']:.1%}, F1 (valid) {metrics['f1']:.3f}, "
+                 f"F1 (invalid) {metrics['f1_invalid']:.3f}, ROC-AUC {metrics['roc_auc']:.3f}",
+                 x=0.02, ha="left", fontsize=8.5, color=INK, linespacing=1.4)
+    return fig
+
+
 def _quiet_axes(ax: Axes, keep: str = "bottom") -> None:
     """Muted ticks and labels; only the baseline spine (and the left one for scatter plots) shows."""
     ax.set_facecolor(SURFACE)

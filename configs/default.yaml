@@ -89,3 +89,18 @@ evaluator:             # the CNN evaluator (T20, Tech Spec 4.2)
   pos_weight: null     # (T20) BCE weight of the valid class; null leaves it unweighted (62% valid)
   batch: 256           # (spec, start)
   lr: 1.0e-3           # (T20, start) Adam
+
+cvae_training:         # (T21, Tech Spec 4.1) python run.py train-cvae
+  optimizer: adam      # (spec) adam, sgd, sgd_momentum or rmsprop; E4 compares them
+  lr: 1.0e-3           # (spec, start)
+  momentum: 0.9        # (spec) for sgd_momentum
+  weight_decay: 0.0    # (spec)
+  batch: 256           # (spec)
+  max_epochs: 200      # (spec)
+  beta_target: 0.1     # (spec, start) E5 tries 0.01, 0.1, 0.5 and 1.0
+  anneal_epochs: 20    # (spec, start) beta rises linearly from 0 to beta_target over these epochs
+  patience: 15         # (spec) epochs without a better validation loss before stopping,
+                       # counted only after annealing
+  early_stopping: true # (spec) E6 compares it with training for max_epochs
+  check_rooms: 100     # (T21) after training, Set A test rooms to sample (64 each) for a first
+                       # RVR of M1; the E1 numbers come later, on the frozen configuration

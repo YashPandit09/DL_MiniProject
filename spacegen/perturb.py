@@ -239,10 +239,10 @@ def label_summary(info: pd.DataFrame) -> pd.DataFrame:
     """Per perturbation type, clean first and the near-misses last: samples, share valid and mean quality."""
     summary = info.groupby("perturbation").agg(samples=("valid", "size"), valid=("valid", "mean"),
                                                quality=("quality", "mean"))
-    return summary.loc[sorted(summary.index, key=_type_order)]
+    return summary.loc[sorted(summary.index, key=type_order)]
 
 
-def _type_order(kind: str) -> tuple:
+def type_order(kind: str) -> tuple:
     order = ("clean", "jitter", "rotation", "random", "overlap", "near_miss_overlap", "near_miss_door")
     base, _, sigma = kind.partition("_") if kind.startswith("jitter_") else (kind, "", "")
     return order.index(base) if base in order else len(order), float(sigma or 0)

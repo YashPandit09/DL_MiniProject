@@ -40,6 +40,14 @@ TASKS: dict[str, tuple[str, list[list[str]]]] = {
         "train the CNN evaluator on Set B (default one epoch; --epochs N --name RUN)",
         [[PY, "-m", "spacegen.train_evaluator"]],
     ),
+    "train-cvae": (
+        "train the CVAE on Set A (--name RUN, --set cvae.<field>=<value> to override the config)",
+        [[PY, "-m", "spacegen.train_cvae"]],
+    ),
+    "evaluator-report": (
+        "metrics of a trained evaluator on the Set B test split (E9a; --run NAME, default e9a)",
+        [[PY, "-m", "spacegen.evaluator_report"]],
+    ),
 }
 
 
