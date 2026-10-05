@@ -174,6 +174,16 @@ def reconstruction_errors(model: CVAE, data: TrainingTensors) -> dict[str, float
             "position_error_rest": float(error[~near].mean())}
 
 
+def train_eval_loss(model: CVAE, train: LayoutBatch, seed: int, beta: float, catalog: RoomCatalog,
+                    device) -> float:
+    """The loss on the (clean) training split scored like validation: eval mode, beta_target and a
+    fixed draw of z. Against the validation loss it gives the generalization gap (E6); the
+    training loss in the log is measured in training mode, with dropout and fresh noise."""
+    data = training_tensors(train, catalog, device)
+    eps = torch.randn(len(data), model.config.latent, generator=torch.Generator().manual_seed(seed)).to(device)
+    return validate(model, data, eps, beta)["loss"]
+
+
 def with_outliers(batch: LayoutBatch, share: float, rng: np.random.Generator,
                   catalog: RoomCatalog) -> tuple[LayoutBatch, np.ndarray]:
     """E2's outlier variant (Tech Spec 2.4): in a share of the layouts, one present item moves to a
@@ -263,9 +273,11 @@ def train_cvae(data_dir: Path, out_dir: Path, seed: int, device: str | torch.dev
                "selected_rotation_loss": float(chosen["val_rotation"]), "selected_kl": float(chosen["val_kl"]),
                "active_units": int(chosen["val_active_units"]),
                "parameters": sum(p.numel() for p in model.parameters()), "outlier_layouts": len(outlier_rows),
+               "train_eval_loss": train_eval_loss(model, set_a.subset(rows["train"]), seed, training.beta_target,
+                                                  catalog, device),
                **reconstruction_errors(model, val)}
     if training.check_rooms > 0:
-        check = _m1_check(model, set_a, rows["test"], training.check_rooms, seed, catalog, device)
+        check = m1_check(model, set_a, rows["test"], training.check_rooms, seed, catalog, device)
         summary["m1_check"] = check
         quality = "none valid" if check["quality"] is None else f"{check['quality']:.3f}"
         log(f"M1 on {check['rooms']} test rooms x 64 samples: RVR {check['rvr']:.1%}, quality of valid layouts {quality}")
@@ -273,9 +285,10 @@ def train_cvae(data_dir: Path, out_dir: Path, seed: int, device: str | torch.dev
     return table
 
 
-def _m1_check(model: CVAE, set_a, test_rows: np.ndarray, n_rooms: int, seed: int, catalog: RoomCatalog,
-              device) -> dict:
-    """A first raw valid rate of M1: 64 prior samples for each of n_rooms Set A test rooms."""
+def m1_check(model: CVAE, set_a, test_rows: np.ndarray, n_rooms: int, seed: int, catalog: RoomCatalog,
+             device) -> dict:
+    """A first raw valid rate of M1: 64 prior samples for each of n_rooms Set A test rooms, with the
+    diversity of the valid samples (mean over rooms with at least two)."""
     rng = np.random.default_rng(seed)
     rooms = [Condition.of(set_a.layout(int(row), catalog), catalog)
              for row in rng.choice(test_rows, size=min(n_rooms, len(test_rows)), replace=False)]
@@ -283,7 +296,9 @@ def _m1_check(model: CVAE, set_a, test_rows: np.ndarray, n_rooms: int, seed: int
     valid = int(table["valid"].sum())
     return {"rooms": len(rooms), "samples": int(table["attempts"].sum()), "rvr": valid / int(table["attempts"].sum()),
             "quality": float(table["quality"].sum() / valid) if valid else None,
-            "mean_overlap": float(table["overlap"].sum() / table["returned"].sum())}
+            "mean_overlap": float(table["overlap"].sum() / table["returned"].sum()),
+            "diversity": float(table["diversity"].dropna().astype(float).mean()) if table["diversity"].notna().any()
+            else None}
 
 
 def main(argv: list[str] | None = None) -> int:

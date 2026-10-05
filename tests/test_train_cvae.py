@@ -93,6 +93,7 @@ def test_training_runs_past_annealing_and_logs_every_epoch(run):
             "val_dead_decoder_2"} <= set(log.columns)
     assert np.isfinite(log.filter(like="grad_").to_numpy()).all()
     assert 0 <= summary["m1_check"]["rvr"] <= 1 and summary["m1_check"]["samples"] == 2 * 64
+    assert summary["train_eval_loss"] > 0 and "diversity" in summary["m1_check"]
 
 
 def test_a_run_records_where_it_came_from(run, tiny_dataset):

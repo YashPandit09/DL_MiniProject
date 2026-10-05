@@ -51,7 +51,7 @@ does the same thing.
 | `python run.py train-cvae` | Train the CVAE on Set A (about 1.5 minutes on the GPU): KL annealing, early stopping, per-epoch log with gradient norms, dead and active units, and a first M1 check; `--name RUN --set cvae.<field>=<value>` for the experiments |
 | `python run.py evaluator-report` | E9a metrics of the evaluator in `runs/evaluator/e9a/` on the Set B test split: `reports/tables/evaluator.csv`, `evaluator_per_type.csv`, `reports/figures/evaluator_confusion.png` |
 | `python run.py generate --width 5 --depth 4 --door W --items sofa,tv_unit,coffee_table` | The pipeline for one room (M2 by default; `--budget`, `--no-latent-opt`, `name:variant` items): the top 3 as JSON and PNG in `reports/demo/` |
-| `python run.py screen e2 e3a e3b` | The CVAE screening experiments (one seed per setting; about 40 minutes on the GPU for all 30 runs, finished runs are reused): `reports/tables/<experiment>.csv` and `reports/figures/<experiment>_*.png` |
+| `python run.py screen all` | The CVAE screening experiments E2 to E8 (one seed per setting, 48 runs, about 75 minutes on the GPU; finished runs are reused): `reports/tables/<experiment>.csv` and `reports/figures/<experiment>_*.png` |
 | `python -m spacegen.viz layout.json layout.png` | Draw a layout JSON as a floor plan with its hard-check results |
 
 ## Reproducibility
@@ -113,3 +113,7 @@ does the same thing.
   position error (0.19 m vs 0.58 MSE), partly because the loss scale shifts the KL balance; E3a ties
   ReLU and Tanh on validation loss while Tanh gives M1 22% raw valid vs 12%; E3b shows vanishing
   gradients (Sigmoid depth 6: 1e-10 at the input) and dying ReLU (29%) without BatchNorm, both masked by it
+- [x] T27, T27b, T29 Screening E4 to E8: Adam 1e-3 converges fastest to the best loss; beta 0.01 cuts the
+  position error from 0.58 m to 0.18 m and raises diversity; the CVAE does not overfit (gaps below 0.01);
+  the Sigmoid head does not suffer near walls; latent optimization reaches 53% raw valid at 25 steps and
+  64% at 200, without losing diversity

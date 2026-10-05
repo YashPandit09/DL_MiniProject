@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 from matplotlib.figure import Figure
 
-from experiments.screening import HUBER
+from experiments.screening import HUBER, TARGET_LOSS
 from spacegen.viz import INK, INK_MUTED, INK_SECONDARY, SURFACE, _quiet_axes
 
 SERIES = ("#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948")
@@ -25,7 +25,8 @@ def _figure(width: float, height: float, title: str) -> Figure:
 
 
 def _legend(ax, **options) -> None:
-    ax.legend(frameon=False, fontsize=6.5, labelcolor=INK_SECONDARY, **options)
+    if ax.get_legend_handles_labels()[0]:  # a panel can be empty when an experiment has no run for it
+        ax.legend(frameon=False, fontsize=6.5, labelcolor=INK_SECONDARY, **options)
 
 
 def _legend_below(fig: Figure, ax) -> None:
@@ -177,8 +178,114 @@ def e3b_units(table: pd.DataFrame) -> Figure:
     return fig
 
 
+# --------------------------------------------------------------------------- E4 to E8
+
+def e4_curves(table: pd.DataFrame, runs: Path, target: float) -> Figure:
+    """Validation loss per epoch, one panel per optimizer, a line per learning rate."""
+    families = {"Adam": "adam", "SGD": "sgd ", "SGD, momentum 0.9": "sgd momentum", "RMSProp": "rmsprop"}
+    fig = _figure(13, 3.6, f"E4: validation loss (at beta_target) per epoch, one seed each; dotted line: the target "
+                           f"{target:g}\nthe first 20 epochs anneal beta, so every run starts high")
+    axes = fig.subplots(1, len(families), sharey=True)
+    for ax, (title, prefix) in zip(axes, families.items()):
+        chosen = table[table["setting"].str.startswith(prefix)]
+        if prefix == "sgd ":  # keep plain SGD apart from SGD with momentum
+            chosen = chosen[~chosen["setting"].str.contains("momentum")]
+        for color, (_, row) in zip(SERIES, chosen.iterrows()):
+            epochs = pd.read_csv(runs / row["run"] / "log.csv")
+            ax.plot(epochs["epoch"], epochs["val_loss"], color=color, linewidth=1.8,
+                    label="lr " + row["setting"].split()[-1])
+        ax.axhline(target, color=INK_MUTED, linewidth=0.8, linestyle=":")
+        ax.set(title=title, xlabel="epoch", ylim=(0.5, 1.5))
+        ax.title.set(fontsize=8, color=INK)
+        _quiet_axes(ax)
+        _legend(ax, loc="upper right")
+    axes[0].set_ylabel("validation loss")
+    return fig
+
+
+def e4_epochs(table: pd.DataFrame, target: float) -> Figure:
+    """Epochs until the validation loss first reaches the target, and the final selected loss."""
+    fig = _figure(11, 3.8, f"E4: epochs until the validation loss reaches {target:g} (missing: never), and the\n"
+                           "validation loss at the selected checkpoint")
+    epochs_ax, loss_ax = fig.subplots(1, 2)
+    reached = [None if pd.isna(v) else float(v) for v in table["epochs_to_target"]]
+    _bars(epochs_ax, table["setting"], {"epochs to target": reached}, ".0f")
+    epochs_ax.set(ylabel="epochs")
+    _bars(loss_ax, table["setting"], {"validation loss": table["val_loss"].tolist()}, ".3f")
+    loss_ax.set(ylabel="validation loss", ylim=(0, None))
+    for ax in (epochs_ax, loss_ax):
+        ax.tick_params(axis="x", labelrotation=30)
+    return fig
+
+
+def e5_tradeoff(table: pd.DataFrame) -> Figure:
+    """Reconstruction against diversity of M1's samples, with raw validity and active units."""
+    fig = _figure(13, 4.0, "E5: the KL weight beta and the latent size; one seed each\n"
+                           "left: reconstruction error (z = mu) against the diversity of M1's valid samples")
+    scatter_ax, rvr_ax, units_ax = fig.subplots(1, 3, width_ratios=[1.3, 1, 1])
+    scatter_ax.scatter(table["position_error_mean"], table["m1_diversity"], s=30, color=SERIES[0], zorder=3)
+    for _, row in table.iterrows():
+        scatter_ax.annotate(row["setting"], (row["position_error_mean"], row["m1_diversity"]),
+                            textcoords="offset points", xytext=(5, 4), fontsize=6.5, color=INK_SECONDARY)
+    scatter_ax.set(xlabel="mean position error, z = mu (m)", ylabel="M1 diversity of valid samples (m)")
+    _quiet_axes(scatter_ax)
+    _bars(rvr_ax, table["setting"], {"M1 raw valid": (100 * table["m1_rvr"]).tolist()}, ".1f")
+    rvr_ax.set(ylabel="M1 raw valid (%)")
+    _bars(units_ax, table["setting"], {"active units": table["active_units"].astype(float).tolist()}, ".0f")
+    units_ax.set(ylabel="active latent units")
+    for ax in (rvr_ax, units_ax):
+        ax.tick_params(axis="x", labelrotation=30)
+    return fig
+
+
+def e6_gap(table: pd.DataFrame) -> Figure:
+    """Training against validation loss of the selected model, both scored in eval mode (the gap)."""
+    fig = _figure(8, 3.9, "E6: regularization; loss of the selected model on the training and validation splits,\n"
+                          "both in eval mode with the same noise and beta (the generalization gap), one seed each")
+    ax = fig.add_subplot()
+    _bars(ax, table["setting"], {"training": table["train_eval_loss"].tolist(),
+                                 "validation": table["val_loss"].tolist()}, ".3f")
+    ax.set(ylabel="loss", ylim=(0, None))
+    _legend_below(fig, ax)
+    return fig
+
+
+def e7_walls(table: pd.DataFrame) -> Figure:
+    """Position error near walls (u or v below 0.05 or above 0.95) against the rest."""
+    fig = _figure(6.5, 3.9, "E7: does the Sigmoid head saturate near the walls?\n"
+                            "mean position error (z = mu) for items within 5% of a wall and for the rest")
+    ax = fig.add_subplot()
+    _bars(ax, table["setting"], {"near walls": table["position_error_near_walls"].tolist(),
+                                 "the rest": table["position_error_rest"].tolist()}, ".3f")
+    ax.set(ylabel="mean position error (m)")
+    _legend_below(fig, ax)
+    return fig
+
+
+def e8_steps(table: pd.DataFrame) -> Figure:
+    """Raw validity, diversity ratio and time against the number of latent-optimization steps."""
+    fig = _figure(12, 3.6, "E8: latent-optimization steps on the default CVAE (M2), 100 test rooms x 64 samples\n"
+                           "0 steps is M1; the diversity ratio compares the valid samples with the generator (G0)")
+    axes = fig.subplots(1, 3)
+    panels = (("rvr", 100, "raw valid (%)"), ("diversity_ratio", 1, "diversity ratio to G0"),
+              ("seconds_per_room", 1, "seconds per room (CPU)"))
+    for ax, (column, scale, label) in zip(axes, panels):
+        ax.plot(table["steps"], scale * table[column], color=SERIES[0], linewidth=2, marker="o", markersize=5)
+        for x, y in zip(table["steps"], scale * table[column]):
+            ax.annotate(f"{y:.2f}" if scale == 1 else f"{y:.1f}", (x, y), textcoords="offset points", xytext=(0, 6),
+                        ha="center", fontsize=6, color=INK_SECONDARY)
+        ax.set(xlabel="optimization steps", ylabel=label)
+        _quiet_axes(ax)
+    return fig
+
+
 FIGURES = {
     "e2": lambda table, runs: {"losses": e2_losses(), "results": e2_results(table), "curves": e2_curves(table, runs)},
     "e3a": lambda table, runs: {"results": e3a_results(table)},
     "e3b": lambda table, runs: {"gradients": e3b_gradients(table, runs), "units": e3b_units(table)},
+    "e4": lambda table, runs: {"curves": e4_curves(table, runs, TARGET_LOSS), "epochs": e4_epochs(table, TARGET_LOSS)},
+    "e5": lambda table, runs: {"tradeoff": e5_tradeoff(table)},
+    "e6": lambda table, runs: {"gap": e6_gap(table)},
+    "e7": lambda table, runs: {"walls": e7_walls(table)},
+    "e8": lambda table, runs: {"steps": e8_steps(table)},
 }

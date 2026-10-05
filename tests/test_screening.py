@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 from experiments.figures import FIGURES, e2_losses
-from experiments.screening import EXPERIMENTS, effective, run_experiment, run_name
+from experiments.screening import EXPERIMENTS, effective, run_experiment, run_latent_steps, run_name
 from spacegen import geometry
 from spacegen.dataset import load_layouts
 from spacegen.train_cvae import with_outliers
@@ -20,8 +20,9 @@ def test_the_same_settings_share_one_run():
 
 
 def test_the_experiment_grid_matches_the_plan():
-    assert {name: len(settings) for name, settings in EXPERIMENTS.items()} == {"e2": 11, "e3a": 6, "e3b": 14}
-    assert len({run_name(o) for settings in EXPERIMENTS.values() for _, o in settings}) == 30
+    assert {name: len(settings) for name, settings in EXPERIMENTS.items()} == {
+        "e2": 11, "e3a": 6, "e3b": 14, "e4": 9, "e5": 6, "e6": 5, "e7": 2}
+    assert len({run_name(o) for settings in EXPERIMENTS.values() for _, o in settings}) == 48  # shared runs count once
     assert all("cvae_training.max_epochs=60" in o for _, o in EXPERIMENTS["e3b"])  # gradients exist at epoch 50
     assert sum("cvae_training.outliers=0.04" in o for _, o in EXPERIMENTS["e2"]) == 5
 
@@ -51,7 +52,23 @@ def test_every_figure_draws_from_a_table(tiny_dataset, tmp_path):
     settings = [("mse", []), ("mae, outliers", ["cvae.position_loss=mae", "cvae_training.outliers=0.04"]),
                 ("relu, depth 6", ["cvae.depth=3", "cvae.batch_norm=false"])]
     table = run_experiment("test", tiny_dataset, 0, "cpu", tmp_path, settings, TINY, log=lambda m: None)
+    steps = run_latent_steps(tiny_dataset, 0, "cpu", steps=(0, 2), rooms=2, model_dir=tmp_path / run_name(TINY),
+                             log=lambda m: None)
+    assert steps["steps"].tolist() == [0, 2] and steps["rvr"].between(0, 1).all()
     for name in FIGURES:
-        figures = FIGURES[name](table, tmp_path)
+        figures = FIGURES[name](steps if name == "e8" else table, tmp_path)
         assert figures and all(fig.axes for fig in figures.values())
     assert len(e2_losses().axes[0].lines) == 5
+
+
+def test_old_runs_get_the_fields_added_later(tiny_dataset, tmp_path):
+    import json
+
+    settings = [("default", [])]
+    table = run_experiment("test", tiny_dataset, 0, "cpu", tmp_path, settings, TINY, log=lambda m: None)
+    path = tmp_path / run_name(TINY) / "summary.json"
+    summary = json.loads(path.read_text(encoding="utf-8"))
+    del summary["train_eval_loss"], summary["m1_check"]["diversity"]  # as if trained before they existed
+    path.write_text(json.dumps(summary), encoding="utf-8")
+    again = run_experiment("test", tiny_dataset, 0, "cpu", tmp_path, settings, TINY, log=lambda m: None)
+    pd.testing.assert_frame_equal(again, table)  # the same values come back, the raw valid rate unchanged
