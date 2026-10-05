@@ -53,8 +53,16 @@ TASKS: dict[str, tuple[str, list[list[str]]]] = {
         [[PY, "-m", "spacegen.pipeline"]],
     ),
     "screen": (
-        "CVAE screening experiments: e2, e3a, e3b or all (trains missing runs, writes tables and figures)",
+        "CVAE screening experiments: e2 to e8, or all (trains missing runs, writes tables and figures)",
         [[PY, "-m", "experiments.screening"]],
+    ),
+    "e1": (
+        "E1 first pass: B1, B2, G0, M1 and M2 on the same 500 test rooms (--cvae RUN, --fresh)",
+        [[PY, "-m", "experiments.headline", "e1"]],
+    ),
+    "e10": (
+        "E10 first pass: M1, M2 and G0 on the in-distribution and the three held-out test sets",
+        [[PY, "-m", "experiments.headline", "e10"]],
     ),
 }
 

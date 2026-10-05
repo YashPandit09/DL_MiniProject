@@ -54,8 +54,10 @@ def load_evaluation_config(path: Path = DEFAULT_CONFIG) -> EvaluationConfig:
 
 
 def evaluate(sampler, conditions: list[Condition], n: int, rng: np.random.Generator, catalog: RoomCatalog,
-             rules: Rules, prefiltered: bool = False) -> pd.DataFrame:
-    """One row per room: attempts, layouts returned, valid ones, summed metrics, diversity, seconds."""
+             rules: Rules, prefiltered: bool = False, extra=None) -> pd.DataFrame:
+    """One row per room: attempts, layouts returned, valid ones, summed metrics, diversity, seconds.
+    `extra(valid layouts, their quality)` returns further columns for the room, not timed (T28:
+    the quality of the top 3 the pipeline would show)."""
     rows = []
     for room, cond in enumerate(conditions):
         start = time.perf_counter()
@@ -65,11 +67,12 @@ def evaluate(sampler, conditions: list[Condition], n: int, rng: np.random.Genera
         scores = score_layouts(samples.layouts, catalog, rules)
         checking = time.perf_counter() - start
         valid = scores["valid"].to_numpy(dtype=bool)
+        kept = [lay for lay, ok in zip(samples.layouts, valid) if ok]
         rows.append({"room": room, "attempts": samples.attempts, "returned": len(samples.layouts),
                      "valid": int(valid.sum()), "overlap": scores["overlap"].sum(),
                      "reachability": scores["reachability"].sum(), "quality": scores.loc[valid, "quality"].sum(),
-                     "diversity": diversity([lay for lay, ok in zip(samples.layouts, valid) if ok]),
-                     "seconds": sampling + (0.0 if prefiltered else checking)})
+                     "diversity": diversity(kept), "seconds": sampling + (0.0 if prefiltered else checking),
+                     **({} if extra is None else extra(kept, scores.loc[valid, "quality"].to_numpy(dtype=float)))})
     return pd.DataFrame(rows)
 
 
@@ -113,20 +116,29 @@ def evaluation_rooms(data_dir: Path, n_rooms: int, rng: np.random.Generator, cat
     return [Condition.of(set_a.layout(int(row), catalog), catalog) for row in rows], reference
 
 
-def evaluate_baselines(data_dir: Path, config: EvaluationConfig, seed: int, catalog: RoomCatalog,
-                       rules: Rules, log=print) -> pd.DataFrame:
-    """B1, B2 (fitted on the Set A training split) and G0 on the same rooms; one summary row each."""
-    rng = np.random.default_rng(seed)
-    conditions, reference = evaluation_rooms(data_dir, config.rooms, rng, catalog)
+def baseline_samplers(data_dir: Path, catalog: RoomCatalog, rules: Rules) -> list[tuple[str, object, bool]]:
+    """(name, sampler, prefiltered) for B1, B2 (fitted on the Set A training split) and G0 (single
+    attempts, so its raw valid rate is its acceptance per attempt)."""
     set_a = load_layouts(data_dir / "set_a.npz")
     with np.load(data_dir / "splits.npz") as splits:
         train: LayoutBatch = set_a.subset(splits["set_a_train"])
-    single_attempts = dataclasses.replace(load_generator_config(), attempts=1)
-    methods = [("B1", UniformBaseline(catalog), False),
-               ("B2", StatisticalBaseline(catalog, load_baseline_config()).fit(train), False),
-               ("G0", GeneratorBaseline(catalog, rules, single_attempts), True)]
+    return [("B1", UniformBaseline(catalog), False),
+            ("B2", StatisticalBaseline(catalog, load_baseline_config()).fit(train), False),
+            ("G0", generator_sampler(catalog, rules), True)]
+
+
+def generator_sampler(catalog: RoomCatalog, rules: Rules) -> GeneratorBaseline:
+    """G0 with single attempts: every attempt is one raw sample."""
+    return GeneratorBaseline(catalog, rules, dataclasses.replace(load_generator_config(), attempts=1))
+
+
+def evaluate_baselines(data_dir: Path, config: EvaluationConfig, seed: int, catalog: RoomCatalog,
+                       rules: Rules, log=print) -> pd.DataFrame:
+    """B1, B2 and G0 on the same rooms, drawing from one generator in that order; one summary row each."""
+    rng = np.random.default_rng(seed)
+    conditions, reference = evaluation_rooms(data_dir, config.rooms, rng, catalog)
     rows = []
-    for name, sampler, prefiltered in methods:
+    for name, sampler, prefiltered in baseline_samplers(data_dir, catalog, rules):
         start = time.perf_counter()
         rooms = evaluate(sampler, conditions, config.samples, rng, catalog, rules, prefiltered)
         rows.append(summarize(name, rooms, reference, prefiltered))

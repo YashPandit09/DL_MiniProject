@@ -1,4 +1,5 @@
-"""Figures of the screening experiments (T26): E2, E3a and E3b, from their tables and run logs.
+"""Figures of the experiments, from their tables and run logs: the screening (T26, T27, T27b,
+T29: E2 to E8) and the first pass of the headline experiments (T28: E1, T30: E10).
 
 Colours follow the reference palette (categorical slots in fixed order); every chart with two or
 more series has a legend, values are labelled where few enough to read, and text uses ink colours.
@@ -12,7 +13,7 @@ import pandas as pd
 from matplotlib.figure import Figure
 
 from experiments.screening import HUBER, TARGET_LOSS
-from spacegen.viz import INK, INK_MUTED, INK_SECONDARY, SURFACE, _quiet_axes
+from spacegen.viz import CONTEXT, INK, INK_MUTED, INK_SECONDARY, SURFACE, _quiet_axes
 
 SERIES = ("#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948")
 LOSSES = ("mse", "mae", *(f"huber {d:g}" for d in HUBER))
@@ -36,13 +37,15 @@ def _legend_below(fig: Figure, ax) -> None:
                labelcolor=INK_SECONDARY)
 
 
-def _bars(ax, labels, groups: dict[str, list[float]], fmt: str) -> None:
-    """Grouped bars: one colour per group, each bar labelled with its value."""
+def _bars(ax, labels, groups: dict[str, list[float]], fmt: str, colors=None) -> None:
+    """Grouped bars: one colour per group (or `colors`, one entry per group: a colour, or a list
+    with a colour per bar), each bar labelled with its value."""
     width = 0.8 / len(groups)
     x = np.arange(len(labels))
     for i, (name, values) in enumerate(groups.items()):
         heights = [np.nan if v is None else v for v in values]
-        bars = ax.bar(x + (i - (len(groups) - 1) / 2) * width, heights, width * 0.92, color=SERIES[i], label=name)
+        color = SERIES[i] if colors is None else colors[i]
+        bars = ax.bar(x + (i - (len(groups) - 1) / 2) * width, heights, width * 0.92, color=color, label=name)
         ax.bar_label(bars, labels=["" if np.isnan(h) else format(h, fmt) for h in heights], padding=2, fontsize=5.5,
                      color=INK_SECONDARY)
     ax.set_xticks(x, labels)
@@ -279,6 +282,68 @@ def e8_steps(table: pd.DataFrame) -> Figure:
     return fig
 
 
+# --------------------------------------------------------------------------- E1 and E10 (first pass)
+
+METHOD_COLORS = {"M1": SERIES[0], "M2": SERIES[1], "B1": SERIES[2], "B2": SERIES[3], "G0": CONTEXT}
+METHOD_LABELS = {"M1": "M1 (CVAE samples)", "M2": "M2 (with latent optimization)", "G0": "G0 (generator, reference)"}
+SET_LABELS = {"in_distribution": "in distribution", "interpolation": "interpolation",
+              "unseen_combination": "unseen combination", "out_of_range": "out of range"}
+
+
+def e1_results(table: pd.DataFrame) -> Figure:
+    """Raw validity, quality and cost per valid layout of every method on the same rooms."""
+    rooms, samples = int(table["rooms"].iloc[0]), int(table["samples"].iloc[0] / table["rooms"].iloc[0])
+    fig = _figure(12, 3.8, f"E1, first pass on the default configuration: {rooms} test rooms x {samples} raw samples "
+                           "per method\nG0 (grey) is the reference: valid by construction, its raw valid rate is its "
+                           "acceptance per attempt")
+    axes = fig.subplots(1, 3)
+    colors = [[METHOD_COLORS[m] for m in table["method"]]]
+    panels = (("rvr", 100, "raw valid (%)", ".1f"), ("quality", 1, "quality of the valid layouts", ".2f"),
+              ("ms_per_valid", 1, "ms per valid layout (CPU)", ".1f"))
+    for ax, (column, scale, label, fmt) in zip(axes, panels):
+        _bars(ax, table["method"], {label: (scale * table[column]).tolist()}, fmt, colors)
+        ax.set(ylabel=label)
+    axes[1].set_ylim(0, 1.05)
+    return fig
+
+
+def e1_ranking(table: pd.DataFrame) -> Figure:
+    """Quality of the top 3 the pipeline would show, with the valid layouts in three orders."""
+    fig = _figure(8.5, 4.0, "E1: mean rule quality of each room's diverse top 3 (rooms with a valid layout), with the\n"
+                            "valid layouts ranked by the CNN evaluator (the pipeline), by the exact rule score, or not at all")
+    ax = fig.add_subplot()
+    _bars(ax, table["method"], {"random order": table["quality_top3_random"].tolist(),
+                                "evaluator ranking (the pipeline)": table["quality_top3"].tolist(),
+                                "rule-score ranking (reference)": table["quality_top3_rule"].tolist()}, ".2f",
+          colors=[CONTEXT, SERIES[6], SERIES[5]])
+    ax.set(ylabel="quality of the top 3", ylim=(0, 1.05))
+    _legend_below(fig, ax)
+    return fig
+
+
+def e10_generalization(table: pd.DataFrame) -> Figure:
+    """Raw validity and quality of M1, M2 and G0 on the four test sets."""
+    sets = list(dict.fromkeys(table["set"]))
+    methods = list(dict.fromkeys(table["method"]))
+    rows = table.set_index(["set", "method"])
+    labels = [f"{SET_LABELS.get(s, s)}\n{rows.loc[(s, methods[0]), 'area_m2']:.0f} m², "
+              f"{rows.loc[(s, methods[0]), 'items']:.1f} items" for s in sets]
+    fig = _figure(12, 4.3, "E10, first pass on the default configuration: generalization beyond the training rooms\n"
+                           "(mean room area and item count under each set); G0 shows how hard each set is by itself")
+    rvr_ax, quality_ax = fig.subplots(1, 2)
+    colors = [METHOD_COLORS[m] for m in methods]
+    _bars(rvr_ax, labels, {METHOD_LABELS.get(m, m): [100 * rows.loc[(s, m), "rvr"] for s in sets] for m in methods},
+          ".1f", colors)
+    rvr_ax.set(ylabel="raw valid (%)")
+    _bars(quality_ax, labels, {METHOD_LABELS.get(m, m): [rows.loc[(s, m), "quality"] for s in sets] for m in methods},
+          ".2f", colors)
+    quality_ax.set(ylabel="quality of the valid layouts", ylim=(0, 1.05))
+    for ax in (rvr_ax, quality_ax):
+        ax.tick_params(axis="x", labelsize=7)
+    _legend_below(fig, rvr_ax)
+    return fig
+
+
 FIGURES = {
     "e2": lambda table, runs: {"losses": e2_losses(), "results": e2_results(table), "curves": e2_curves(table, runs)},
     "e3a": lambda table, runs: {"results": e3a_results(table)},
@@ -288,4 +353,6 @@ FIGURES = {
     "e6": lambda table, runs: {"gap": e6_gap(table)},
     "e7": lambda table, runs: {"walls": e7_walls(table)},
     "e8": lambda table, runs: {"steps": e8_steps(table)},
+    "e1": lambda table, runs: {"results": e1_results(table), "ranking": e1_ranking(table)},
+    "e10": lambda table, runs: {"generalization": e10_generalization(table)},
 }

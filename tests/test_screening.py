@@ -55,7 +55,7 @@ def test_every_figure_draws_from_a_table(tiny_dataset, tmp_path):
     steps = run_latent_steps(tiny_dataset, 0, "cpu", steps=(0, 2), rooms=2, model_dir=tmp_path / run_name(TINY),
                              log=lambda m: None)
     assert steps["steps"].tolist() == [0, 2] and steps["rvr"].between(0, 1).all()
-    for name in FIGURES:
+    for name in [*EXPERIMENTS, "e8"]:  # the headline figures (E1, E10) are tested in test_headline.py
         figures = FIGURES[name](steps if name == "e8" else table, tmp_path)
         assert figures and all(fig.axes for fig in figures.values())
     assert len(e2_losses().axes[0].lines) == 5

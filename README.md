@@ -52,6 +52,8 @@ does the same thing.
 | `python run.py evaluator-report` | E9a metrics of the evaluator in `runs/evaluator/e9a/` on the Set B test split: `reports/tables/evaluator.csv`, `evaluator_per_type.csv`, `reports/figures/evaluator_confusion.png` |
 | `python run.py generate --width 5 --depth 4 --door W --items sofa,tv_unit,coffee_table` | The pipeline for one room (M2 by default; `--budget`, `--no-latent-opt`, `name:variant` items): the top 3 as JSON and PNG in `reports/demo/` |
 | `python run.py screen all` | The CVAE screening experiments E2 to E8 (one seed per setting, 48 runs, about 75 minutes on the GPU; finished runs are reused): `reports/tables/<experiment>.csv` and `reports/figures/<experiment>_*.png` |
+| `python run.py e1` | E1, first pass: B1, B2, G0, M1 and M2 on the same 500 test rooms x 64 samples (about 15 minutes, samplers on the CPU), plus the quality of the top 3 the pipeline would show; per-room rows are cached in `runs/headline/<cvae run>/` (`--cvae RUN`, `--fresh`): `reports/tables/e1.csv`, `reports/figures/e1_*.png` |
+| `python run.py e10` | E10, first pass: M1, M2 and G0 on the E1 rooms and 500 rooms of each held-out set (about 30 minutes): `reports/tables/e10.csv`, `reports/figures/e10_generalization.png` |
 | `python -m spacegen.viz layout.json layout.png` | Draw a layout JSON as a floor plan with its hard-check results |
 
 ## Reproducibility
@@ -117,3 +119,10 @@ does the same thing.
   position error from 0.58 m to 0.18 m and raises diversity; the CVAE does not overfit (gaps below 0.01);
   the Sigmoid head does not suffer near walls; latent optimization reaches 53% raw valid at 25 steps and
   64% at 200, without losing diversity
+- [x] T28 E1, first pass (default configuration, 500 test rooms x 64 samples; `experiments/headline.py`): raw valid
+  B1 10%, B2 58%, M1 11%, M2 64% (G0 75% per attempt). M2's valid layouts score 0.60 on quality (G0 0.88), but the
+  top 3 the evaluator picks score 0.78 (0.84 if ranked by the rule score, 0.59 in random order). M2 costs 22 ms
+  per valid layout, G0 2 ms
+- [x] T30 E10, first pass: M2's raw valid rate rises with room size (64% in distribution, 67% interpolation, 79%
+  unseen combination, 81% out of range) as G0's does (75% to 96%), so the held-out rooms are easier, not harder;
+  M2's quality holds (0.60 to 0.56; the top 3 from 0.78 to 0.74)
