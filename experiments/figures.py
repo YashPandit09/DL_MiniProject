@@ -344,8 +344,38 @@ def e10_generalization(table: pd.DataFrame) -> Figure:
     return fig
 
 
+# --------------------------------------------------------------------------- Gate 2 (T33)
+
+def gate2_candidates(runs: pd.DataFrame) -> Figure:
+    """Per candidate: the mean over the seeds with one standard deviation, and every seed."""
+    candidates = list(dict.fromkeys(runs["candidate"]))
+    fig = _figure(13, 3.9, f"Gate 2: {runs['seed'].nunique()} seeds per candidate; M1 and M2 sample the same Set A "
+                           "validation rooms with the same draws\nthe rule decides on M2's raw valid rate and top-3 "
+                           "quality (see reports/gate2.md)")
+    panels = (("m1_rvr", 100, "M1 raw valid (%)", ".1f"), ("m2_rvr", 100, "M2 raw valid (%)", ".1f"),
+              ("m2_top3", 1, "M2 top-3 quality (evaluator ranking)", ".3f"), ("m2_diversity", 1, "M2 diversity (m)", ".2f"))
+    axes = fig.subplots(1, len(panels))
+    for ax, (column, scale, label, fmt) in zip(axes, panels):
+        for i, name in enumerate(candidates):
+            values = scale * runs.loc[runs["candidate"] == name, column].to_numpy(dtype=float)
+            mean, std = values.mean(), (values.std(ddof=1) if len(values) > 1 else 0.0)
+            ax.scatter(np.full(len(values), i + 0.2), values, s=14, color=CONTEXT, zorder=2,
+                       label="each seed" if i == 0 else None)
+            ax.errorbar(i, mean, yerr=std, fmt="o", color=SERIES[0], markersize=6, elinewidth=1.5, capsize=3,
+                        zorder=3, label="mean, one standard deviation" if i == 0 else None)
+            ax.annotate(format(mean, fmt), (i, mean + std), textcoords="offset points", xytext=(0, 4), ha="center",
+                        fontsize=6.5, color=INK_SECONDARY)
+        ax.set_xticks(range(len(candidates)), candidates)
+        ax.tick_params(axis="x", labelrotation=20)
+        ax.margins(x=0.2, y=0.15)
+        ax.set(ylabel=label)
+        _quiet_axes(ax)
+    _legend_below(fig, axes[0])
+    return fig
+
+
 FIGURES = {
-    "e2": lambda table, runs: {"losses": e2_losses(), "results": e2_results(table), "curves": e2_curves(table, runs)},
+    "e2":lambda table, runs: {"losses": e2_losses(), "results": e2_results(table), "curves": e2_curves(table, runs)},
     "e3a": lambda table, runs: {"results": e3a_results(table)},
     "e3b": lambda table, runs: {"gradients": e3b_gradients(table, runs), "units": e3b_units(table)},
     "e4": lambda table, runs: {"curves": e4_curves(table, runs, TARGET_LOSS), "epochs": e4_epochs(table, TARGET_LOSS)},
@@ -355,4 +385,5 @@ FIGURES = {
     "e8": lambda table, runs: {"steps": e8_steps(table)},
     "e1": lambda table, runs: {"results": e1_results(table), "ranking": e1_ranking(table)},
     "e10": lambda table, runs: {"generalization": e10_generalization(table)},
+    "gate2": lambda table, runs: {"candidates": gate2_candidates(table)},
 }

@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.4 (decisions taken while building T01 to T17, up to Gate 1; see change log in Section 12) |
+| Version | 1.5 (decisions taken while building T01 to T30, up to Gate 2, and the frozen configuration; see change log in Section 12) |
 | Companion docs | PRD.md, Architecture.md, Development_Plan.md |
 | Scope | Living room (P0). Bedroom (P2). Same code, different config. |
 
@@ -204,13 +204,13 @@ head_pos : Linear(256, 2K) -> Sigmoid                       (u_k, v_k in (0,1))
 head_rot : Linear(256, 4K) -> reshape (K,4)                 (logits; softmax only at inference)
 ```
 
-`Act` defaults to ReLU; the final choice comes from experiment E3a (BatchNorm on, the deployed setting). The position head activation (Sigmoid vs Linear plus clamp) is tested in E7.
+`Act` defaults to ReLU; the final choice comes from experiment E3a (BatchNorm on, the deployed setting). The position head activation (Sigmoid vs Linear plus clamp) is tested in E7. *v1.5: Gate 2 keeps ReLU and the Sigmoid head, and freezes the MAE position loss (Section 11, `configs/frozen.yaml`).*
 
 **Task to activation to loss mapping**
 
 | Output | Task | Output activation | Loss |
 |---|---|---|---|
-| Position `(u, v)` | Bounded regression | Sigmoid (compare Linear + clamp) | MSE (default), MAE, Huber compared |
+| Position `(u, v)` | Bounded regression | Sigmoid (compare Linear + clamp) | MSE (default), MAE, Huber compared; **MAE frozen at Gate 2** |
 | Rotation `r` | 4-class classification | Softmax (inside the loss; the network outputs logits) | Categorical cross-entropy via `F.cross_entropy` on the logits |
 | Latent | Regularization | none | KL divergence to N(0, I) |
 
@@ -352,6 +352,11 @@ L_c(z) = lambda_ov  * sum_{i<j} pen_ij^2              (penetration depth, Sectio
 **Why E3 has two parts.** The deployed model uses BatchNorm, so the activation is chosen with BatchNorm on (E3a), where ELU, GELU and LeakyReLU are tested in the setting they will actually run in. The BatchNorm-off study (E3b) is a diagnostic: BatchNorm keeps pre-activations near zero mean and unit variance, which hides both vanishing gradients and dying ReLU. The BN-on references test that expectation directly; if BN does mask the effects, that is itself a finding to explain in the viva.
 
 **Failure-case analysis:** collect at least 10 failed or poor outputs across methods, classify the cause (overlap, door blocked, unreachable, collapse), and discuss.
+
+**As built (v1.5).**
+- **The freeze is chosen on validation rooms, with M2.** The screening's M1 check sampled test rooms, so it only shortlists. Three seeds of each shortlisted setting are compared with M2, the deployed method, on 200 Set A validation rooms, under a rule fixed in advance (`python run.py gate2`, `reports/gate2.md`). M1 proved a poor guide: Tanh nearly doubles M1's raw valid rate but lowers M2's.
+- **E1 also reports the quality of the top 3 the pipeline shows.** For each room, the valid layouts are ranked three ways (by the evaluator, by the exact rule score, and at random), and the diverse top 3 is scored under each. This measures what the evaluator adds as a ranker (Section 4.2, purpose 3).
+- **E10 also runs G0 on every set.** It shows how hard each set's rooms are by themselves. The larger held-out rooms turned out easier, not harder.
 
 ---
 
@@ -505,16 +510,16 @@ Sidebar inputs: room type, `W`, `D`, door wall and offset, furniture selection a
 
 ## 11. Open technical decisions
 
-| # | Decision | Default | How to decide |
-|---|---|---|---|
-| T1 | Hidden activation | ReLU | E3a (BatchNorm on, depth 2) |
-| T2 | Position loss | MSE | E2 |
-| T3 | Position head | Sigmoid | E7 |
-| T4 | `beta_target` | 0.1 | E5 |
-| T5 | Latent size | 16 | E5 |
-| T6 | Optimization steps | 150 | E8 |
-| T7 | Bedroom in scope | No (P2); pinned furniture has priority | Development_Plan cut list |
-| T8 | Circulation term `S_circ` | Spec definition (passable over free cells; an empty room scores 0.68 to 0.83 depending on its size) | Before E10: divide by the same room's value when empty, so that every room can reach 1, if results are compared across room sizes |
+| # | Decision | Default | How to decide | Outcome (v1.5, Gate 2) |
+|---|---|---|---|---|
+| T1 | Hidden activation | ReLU | E3a (BatchNorm on, depth 2) | ReLU. E3a ties ReLU and Tanh on validation loss; over three seeds Tanh lowers M2's raw valid rate (64% against 67%) and top-3 quality (0.72 against 0.79) |
+| T2 | Position loss | MSE | E2 | **MAE**: M2 72% against 67% raw valid, top-3 quality 0.85 against 0.79, three seeds on validation rooms |
+| T3 | Position head | Sigmoid | E7 | Sigmoid: no extra error near walls |
+| T4 | `beta_target` | 0.1 | E5 | 0.1: `beta` 0.01 improves reconstruction but not M1's validity or quality |
+| T5 | Latent size | 16 | E5 | 16: 4 and 32 change little |
+| T6 | Optimization steps | 150 | E8 | 150: 63% at 100 steps, 64% at 200 on the default model; T33b reruns E8 on the frozen model |
+| T7 | Bedroom in scope | No (P2); pinned furniture has priority | Development_Plan cut list | No; the team decides the extras at Gate 2 |
+| T8 | Circulation term `S_circ` | Spec definition (passable over free cells; an empty room scores 0.68 to 0.83 depending on its size) | Before E10: divide by the same room's value when empty, so that every room can reach 1, if results are compared across room sizes | The spec's definition, kept. In E10, G0's quality moves only between 0.86 and 0.89 across the four test sets, and every set is compared with G0 |
 
 ---
 
@@ -565,3 +570,25 @@ Sidebar inputs: room type, `W`, `D`, door wall and offset, furniture selection a
 - Baselines (4.3): B1 keeps items inside the room; B2 is specified, including redraws while an item overlaps another or sticks out of the room (20% vs 58% raw valid); G0 runs single attempts in evaluation.
 - Metrics (7): evaluation protocol (500 rooms, 64 samples each) and the v1 baseline table.
 - Tooling (9): Python 3.11 or newer; `run.py` task runner; notebook packages; repository structure updated.
+
+**v1.5 (Week 2 built, Gate 2 review: decisions taken while building T19 to T30, and the frozen configuration)**
+- CVAE (4.1): 177,732 parameters. The validation loss uses a fixed draw of `z`, so epochs compare. A linear position head is clamped only when generating. The optional overlap term uses margin 0, because training layouts may touch; E2 tries weight 1.0.
+- Evaluator (4.2): 585,682 parameters, 19 s per epoch on the GPU. The trainer keeps the best validation epoch, because single epochs spike.
+- Latent optimization (5.2):
+  - Rotations stay those decoded at `z0`; a pin's facing overrides them.
+  - A candidate stops once its constraint terms, without the anchor, fall below 1e-4.
+  - It runs on the CPU, which is faster than the GPU for 64 candidates.
+  - The 90% acceptance test counts the candidates that need repair. 11% already meet the constraints at `z0` and keep it; 99.6% of the rest end with a lower loss.
+- Experiment details (6):
+  - E2's outlier variant moves one item to a random spot in 4% of the training layouts.
+  - E3b runs a fixed 60 epochs, so gradient norms exist at epochs 1, 10 and 50.
+  - E4's target is a validation loss of 0.65.
+  - E6's gap scores the training split in eval mode. Logged in train mode, dropout makes the training loss look worse than the validation loss.
+  - E8 uses 100 test rooms.
+- E1 and E10 additions (6): E1 adds the quality of each room's diverse top 3, under the evaluator's ranking, the rule score's and a random order. E10 adds G0 on every set as the reference.
+- Configuration freeze (6, order of work):
+  - The screening's M1 check sampled test rooms, so it only shortlists.
+  - Three seeds of each shortlisted setting (Tanh, the overlap term, MAE, and the two best together) are compared with M2 on 200 Set A validation rooms, under a rule fixed in advance (`reports/gate2.md`).
+  - MAE is frozen (`configs/frozen.yaml`). Tanh, which nearly doubles M1's validity, lowers M2's.
+- Decisions T1 to T8 closed (11). T8 keeps the circulation term as specified.
+- The PRD's raw-valid target ("the CVAE beats B1 and B2") is met by M2, not by M1: in the first pass of E1, M1 reaches 11% and M2 64%, against B2's 58%. Reported as measured.

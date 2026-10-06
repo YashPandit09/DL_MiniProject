@@ -13,6 +13,7 @@ violations, a rule checker verifies every layout, and a CNN evaluator ranks the 
 | [Architecture.md](Architecture.md) | Modules, data flow, design decisions |
 | [Development_Plan.md](Development_Plan.md) | Tasks T01 to T50, gates, cut list, viva preparation |
 | [reports/gate1.md](reports/gate1.md) | Gate 1 review: checklist evidence, key numbers, cross-teaching sheet, hours log |
+| [reports/gate2.md](reports/gate2.md) | Gate 2 review: checklist evidence, the configuration freeze, cross-teaching sheet #2, hours log, extras |
 
 ## Setup
 
@@ -54,6 +55,7 @@ does the same thing.
 | `python run.py screen all` | The CVAE screening experiments E2 to E8 (one seed per setting, 48 runs, about 75 minutes on the GPU; finished runs are reused): `reports/tables/<experiment>.csv` and `reports/figures/<experiment>_*.png` |
 | `python run.py e1` | E1, first pass: B1, B2, G0, M1 and M2 on the same 500 test rooms x 64 samples (about 15 minutes, samplers on the CPU), plus the quality of the top 3 the pipeline would show; per-room rows are cached in `runs/headline/<cvae run>/` (`--cvae RUN`, `--fresh`): `reports/tables/e1.csv`, `reports/figures/e1_*.png` |
 | `python run.py e10` | E10, first pass: M1, M2 and G0 on the E1 rooms and 500 rooms of each held-out set (about 30 minutes): `reports/tables/e10.csv`, `reports/figures/e10_generalization.png` |
+| `python run.py gate2` | Gate 2 freeze: three seeds of the shortlisted CVAE settings (trains only missing runs), M1 and M2 scored on 200 Set A validation rooms, the rule from `reports/gate2.md` applied; writes `configs/frozen.yaml`, `reports/tables/gate2*.csv`, `reports/figures/gate2_candidates.png` (about an hour) |
 | `python -m spacegen.viz layout.json layout.png` | Draw a layout JSON as a floor plan with its hard-check results |
 
 ## Reproducibility
@@ -126,3 +128,8 @@ does the same thing.
 - [x] T30 E10, first pass: M2's raw valid rate rises with room size (64% in distribution, 67% interpolation, 79%
   unseen combination, 81% out of range) as G0's does (75% to 96%), so the held-out rooms are easier, not harder;
   M2's quality holds (0.60 to 0.56; the top 3 from 0.78 to 0.74)
+- [ ] T33 Gate 2 review (`reports/gate2.md`): 6 of 9 boxes done. Configuration frozen (`configs/frozen.yaml`, MAE
+  position loss) after comparing three seeds of the screening's shortlist with M2 on 200 validation rooms: MAE gives
+  72% raw valid against 67% and a top-3 quality of 0.85 against 0.79; Tanh nearly doubles M1's validity but lowers
+  M2's. Left: the final 3-seed runs (T33b), the Week 2 hours and the go or no-go for the extras. Tech Spec and
+  Development Plan v1.5

@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.4 (Week 1 built; Gate 1 review in `reports/gate1.md`; change notes in Section 12) |
+| Version | 1.5 (Week 2 built; Gate 2 review in `reports/gate2.md`; change notes in Section 12) |
 | Team | [Member A] (ML and geometry lead), [Member B] (data, rules and app lead) |
 | Duration | 21 days. "Day 1" is the day you start. |
 | Companion docs | PRD.md, Tech_Spec.md, Architecture.md |
@@ -120,7 +120,7 @@ The P0 plan uses almost all of the available time. The buffer tasks (T48, and Da
 | T30 | **E10 first pass** on all four test sets | B | P0 | M | T25, T14 | Debug run of the grouped bar chart |
 | T31 | E9b write-up: CNN vs feature MLP, with the caveat that the features encode the rules | B | P1 | S | T24 | Paragraph plus table |
 | T32 | Bedroom config and generator; retrain CVAE with the same code | B | P2 | L | Gate 2 pass | Bedroom RVR table for M1 and M2 |
-| T33 | **Gate 2 review, cross-teaching #2 and configuration freeze** (write `configs/frozen.yaml` from E2 to E7) | A + B | P0 | S | T19 to T30 | Checklist in Section 7 passes |
+| T33 | **Gate 2 review, cross-teaching #2 and configuration freeze** (write `configs/frozen.yaml` from E2 to E7). *v1.5: the screening shortlists; three seeds of the shortlisted settings are compared with M2 on Set A validation rooms (`python run.py gate2`), because the screening's M1 check sampled test rooms* | A + B | P0 | S | T19 to T30 | Checklist in Section 7 passes |
 
 **Day-by-day (Week 2)**
 
@@ -212,13 +212,13 @@ T50 and T40 have no fixed day: do them only in gaps and only if Gate 2 was comfo
 - [ ] Each member can explain the other's Week 1 modules
 - [ ] Actual hours logged for Week 1 tasks; if more than 15% over planned, start the reduction ladder now
 
-**Gate 2 (Day 14)**
-- [ ] CVAE trains without collapse (active units above 0); early stopping test passes
-- [ ] Evaluator F1 reported overall and per perturbation type
-- [ ] Latent optimization lowers the constraint loss for at least 90% of candidates, and its effect on RVR and diversity is measured (either direction, reported honestly)
-- [ ] Pipeline returns 3 layouts end to end
-- [ ] E2 to E7 have screening results saved; the deployed activation is chosen from E3a (BatchNorm on); the best configuration is written to `configs/frozen.yaml`
-- [ ] First passes of E1 and E10 run without errors
+**Gate 2 (Day 14)** (evidence for each box in `reports/gate2.md`)
+- [x] CVAE trains without collapse (active units above 0); early stopping test passes
+- [x] Evaluator F1 reported overall and per perturbation type
+- [x] Latent optimization lowers the constraint loss for at least 90% of candidates, and its effect on RVR and diversity is measured (either direction, reported honestly)
+- [x] Pipeline returns 3 layouts end to end
+- [x] E2 to E7 have screening results saved; the deployed activation is chosen from E3a (BatchNorm on); the best configuration is written to `configs/frozen.yaml`
+- [x] First passes of E1 and E10 run without errors
 - [ ] Final 3-seed runs on the frozen configuration launched
 - [ ] Actual hours logged for Week 2 tasks; if more than 15% over planned, apply the reduction ladder before starting any P1 or P2 task
 - [ ] Go or no-go recorded for: pinned furniture (T38), real rooms (T39), surrogate (T50), 3D (T40), bedroom (T32)
@@ -337,6 +337,13 @@ Applying the whole ladder closes the gap exactly and leaves **no slack**, so tre
 ---
 
 ## 12. Change notes
+
+**v1.5 (Week 2 built, Gate 2 review)**
+- Week 2 ran in the order T19 and T20, T21 and T22, T23 and T25, T26, then T27, T27b and T29 together, T28 and T30, T33. The P1 tasks T24 and T31 and the P2 task T32 were not started.
+- T33 compares three seeds of the shortlisted settings with M2 on Set A validation rooms (`python run.py gate2`). The screening's M1 check sampled test rooms, so it can only shortlist, and M1 turned out to be a poor guide: Tanh nearly doubles M1's validity but lowers M2's.
+- Gate 2: six of nine boxes ticked with evidence in `reports/gate2.md`. The final 3-seed runs (T33b), the Week 2 hours and the go or no-go for the extras remain.
+- New `run.py` tasks: `screen`, `e1`, `e10`, `gate2`.
+- Technical decisions taken while building (latent-optimization stopping, experiment details, the E1 and E10 additions, the frozen configuration) are in the Tech Spec v1.5 change log.
 
 **v1.4 (Week 1 built, Gate 1 review)**
 - T11 builds all three generator styles; T13 keeps only the Set B perturbations. Style (a) alone cannot keep the 1.5 to 3.5 m sofa-TV distance in about a quarter of rooms (Tech Spec 2.4).

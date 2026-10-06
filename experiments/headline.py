@@ -57,7 +57,8 @@ from spacegen.raster import RasterConfig, rasterize_layouts
 from spacegen.rules import Rules, load_rules
 from spacegen.seed import set_seed
 
-SETS = ("in_distribution", "interpolation", "unseen_combination", "out_of_range")
+SETS = ("in_distribution", "interpolation", "unseen_combination", "out_of_range")  # the E10 test sets
+ROOM_SETS = (*SETS, "validation")  # (T33) Set A validation rooms, for choosing the frozen configuration
 METHODS = ("B1", "B2", "G0", "M1", "M2")
 E10_METHODS = ("M1", "M2", "G0")
 ORDERS = {"evaluator": "quality_top3", "rule": "quality_top3_rule", "random": "quality_top3_random"}
@@ -115,9 +116,17 @@ class Headline:
             stored.write_text(json.dumps(inputs, indent=2), encoding="utf-8", newline="\n")
 
     def rooms(self, set_name: str) -> tuple[list[Condition], pd.Series]:
-        """The rooms of a test set, and the G0 reference diversity per room (the E1 rooms only)."""
+        """The rooms of a test set (or of the validation split), and the G0 reference diversity per
+        room (the E1 rooms only)."""
         if set_name == "in_distribution":
             return evaluation_rooms(self.data_dir, self.config.rooms, np.random.default_rng(self.seed), self.catalog)
+        if set_name == "validation":
+            set_a = load_layouts(self.data_dir / "set_a.npz")
+            with np.load(self.data_dir / "splits.npz") as splits:
+                rows = splits["set_a_validation"]
+            chosen = self._rng(set_name).choice(rows, size=min(self.config.rooms, len(rows)), replace=False)
+            return [Condition.of(set_a.layout(int(row), self.catalog), self.catalog) for row in chosen], \
+                pd.Series(dtype=float)
         batch = load_layouts(self.data_dir / f"held_out_{set_name}.npz")
         count = min(self.config.rooms, len(batch))
         return [Condition.of(batch.layout(i, self.catalog), self.catalog) for i in range(count)], pd.Series(dtype=float)
@@ -190,7 +199,7 @@ class Headline:
                  f"raw valid {rows['valid'].sum() / rows['attempts'].sum():.1%}")
 
     def _rng(self, set_name: str, *salt: int) -> np.random.Generator:
-        return np.random.default_rng([self.seed, SETS.index(set_name), *salt])
+        return np.random.default_rng([self.seed, ROOM_SETS.index(set_name), *salt])
 
 
 def _file_hash(path: Path) -> str:

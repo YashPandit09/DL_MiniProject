@@ -64,6 +64,10 @@ TASKS: dict[str, tuple[str, list[list[str]]]] = {
         "E10 first pass: M1, M2 and G0 on the in-distribution and the three held-out test sets",
         [[PY, "-m", "experiments.headline", "e10"]],
     ),
+    "gate2": (
+        "Gate 2 freeze: 3 seeds of the shortlisted CVAE settings on validation rooms; writes configs/frozen.yaml",
+        [[PY, "-m", "experiments.gate2"]],
+    ),
 }
 
 

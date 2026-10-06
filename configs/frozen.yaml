@@ -1,0 +1,132 @@
+# Frozen configuration (T33, Gate 2, 2026-10-06): configs/default.yaml with the
+# choice of the Gate 2 review (reports/gate2.md): mae (cvae.position_loss=mae).
+# The final 3-seed runs and the headline experiments (T33b) use this file.
+# Master configuration. Every run saves the config it used next to its outputs
+# (Tech Spec Section 9.2). Sections are added task by task.
+seed: 0
+
+raster:                # input images of the CNN evaluator (Tech Spec 4.2)
+  canvas: 8.0          # (spec) meters per side of the fixed canvas; the room sits at its origin
+  pixels: 128          # (spec) pixels per side, so 0.0625 m per pixel
+  front_strip: 0.10    # (T07) thickness of the band marking an item's front, about 1.6 pixels
+
+generator:             # Set A layouts and the G0 reference (T11, Tech Spec 2.4). Room sizes and
+                       # the spacing ranges between items come from rules.yaml.
+  attempts: 20         # (T11) placements tried per room; a room that fails them all is dropped
+  wall_gap: 0.05       # (T11) an item placed against a wall stands 0 to 5 cm from it
+  jitter: 0.05         # (spec) sigma of the position jitter (m)
+  walkway: 0.75        # (T11) style (b): clear floor behind the floating sofa, above the 0.6 m
+                       # path width so the walkway counts as passable whatever the grid alignment
+  armchair_gap: [0.4, 0.9]  # (T11) armchair to the end of the coffee table (the relation allows 1.2)
+  shelf_clearance: 0.6 # (T11) clear floor kept in front of the bookshelf
+  optional_items:      # (T11) each optional item is in the room with a probability that rises
+    area: [10.5, 30.0] # linearly with floor area (m^2) between these two points
+    probability: [0.25, 0.75]
+
+set_b:                 # labelled layouts for the CNN evaluator (T13, Tech Spec 2.4). Half are
+                       # generator layouts as they come; the other half are perturbed copies,
+                       # a tenth of Set B per type: jitter, rotation, random, overlap, near-miss.
+  clean_share: 0.5     # (spec)
+  jitter_sigmas: [0.1, 0.3, 0.6]  # (spec) m; each sigma gets a third of the jitter share
+  jitter_items: 0.5    # (T13) chance that each item is jittered; at least one always is
+  near_miss_area: [0.002, 0.0125]  # (T13) overlap of two items, log-uniform, so half fall below
+                       # the 0.005 m^2 tolerance (the spec's 0.002-0.05 would make at least 70% invalid)
+  near_miss_gap: 0.03  # (T13) door near-miss: from this far clear of the zone to this far inside
+  near_miss_reach: 1.0 # (T13) near-miss moves of at most this length (m) are preferred
+
+splits:                # (T14, Tech Spec 2.4)
+  fractions: [0.70, 0.15, 0.15]  # (spec) train, validation, test, split by layout
+  held_out:            # (spec) rooms that training never sees; Set A and Set B redraw them
+    interpolation: {area: [22.0, 26.0]}       # a gap inside the training ranges
+    unseen_combination: {area: [32.0, .inf]}  # each W and D occurs in training, not together
+    out_of_range: {width: [7.0, 8.0], depth: [6.0, 7.0]}  # beyond the training ranges
+  held_out_rooms: 1000 # (T14) rooms per held-out set, each with one generator layout
+  diversity_rooms: 200 # (spec) test rooms for the diversity reference (G0) ...
+  diversity_layouts: 20  # (spec) ... with this many generator layouts each
+
+dataset:               # the dataset build (T15): python run.py data writes data/<version>/
+  version: v1
+  set_a: 30000         # (spec, start) good layouts for the CVAE
+  set_b: 60000         # (spec, start) labelled layouts for the evaluator
+  calibration_rooms: 5000  # (T15) rooms for calibrating f_max, spread evenly over the footprint
+                       # ratio (crowded rooms are rare in plain draws)
+  calibration_items: 0.5   # (T15) each optional item is in a calibration room with this chance,
+                       # whatever the room's size
+
+baselines:             # (T12, Tech Spec 4.3)
+  b2_bins: 3           # (T12) B2 groups training rooms into this many width bins and depth bins,
+                       # each holding an equal share of the training rooms
+  b2_min_examples: 20  # (T12) a bin with fewer examples of an item borrows from rooms of every
+                       # size with the same door wall, then from all rooms
+  b2_noise: 0.02       # (T12) sigma of the noise added to a drawn u and v
+  b2_redraws: 10       # (T12) times an item is drawn again while it overlaps one already placed
+  b2_redraw_outside: true   # (T12, chosen after T15) also draw again while the item sticks out of the
+                       # room; without it B2 fails mostly because positions taken as fractions of a
+                       # larger training room stick out of a smaller one (20% vs 60% raw valid)
+
+evaluation:            # (T16, Tech Spec 6 and 7) the same rooms and samples for every method
+  rooms: 500           # (T16) Set A test rooms: the diversity-reference rooms, then random ones
+  samples: 64          # (spec) raw samples per room (N = 64 in the pipeline)
+
+cvae:                  # the generator (T19, Tech Spec 4.1); the Week 2 experiments sweep these
+  latent: 16           # (spec, start) size of z; E5 tries 4, 16 and 32
+  hidden: 256          # (spec) units per hidden layer
+  depth: 2             # (spec) hidden layers in the encoder and in the decoder; E3b also tries 6
+  activation: relu     # (spec) relu, leaky_relu, elu, gelu, tanh or sigmoid; E3a decides
+  batch_norm: true     # (spec) E3b and E6 switch it off
+  dropout: 0.1         # (spec) E6 tries 0, 0.1 and 0.3
+  position_head: sigmoid  # (spec) sigmoid, or linear (clamped to [0, 1] only when decoding); E7
+  position_loss: mae   # (T33, Gate 2: was mse) (spec) mse, mae or huber; E2
+  huber_delta: 0.05    # (spec) E2 tries 0.01, 0.05 and 0.1
+  lambda_rot: 1.0      # (spec, start) weight of the rotation cross-entropy
+  lambda_overlap: 0.0  # (spec) optional penetration-depth term on decoded positions; E2 and E5
+  overlap_margin: 0.0  # (T19) margin of that term: 0, because training layouts may touch
+
+evaluator:             # the CNN evaluator (T20, Tech Spec 4.2)
+  channels: [16, 32, 64, 64]  # (spec) the four Conv-BN-ReLU-MaxPool blocks
+  hidden: 128          # (spec) units of the dense layer
+  dropout: 0.3         # (spec)
+  lambda_score: 1.0    # (spec, start) weight of the score regression next to the BCE
+  score_loss: mse      # (spec) mse or huber
+  huber_delta: 0.1     # (T20) for score_loss huber
+  pos_weight: null     # (T20) BCE weight of the valid class; null leaves it unweighted (62% valid)
+  batch: 256           # (spec, start)
+  lr: 1.0e-3           # (T20, start) Adam
+
+cvae_training:         # (T21, Tech Spec 4.1) python run.py train-cvae
+  optimizer: adam      # (spec) adam, sgd, sgd_momentum or rmsprop; E4 compares them
+  lr: 1.0e-3           # (spec, start)
+  momentum: 0.9        # (spec) for sgd_momentum
+  weight_decay: 0.0    # (spec)
+  batch: 256           # (spec)
+  max_epochs: 200      # (spec)
+  beta_target: 0.1     # (spec, start) E5 tries 0.01, 0.1, 0.5 and 1.0
+  anneal_epochs: 20    # (spec, start) beta rises linearly from 0 to beta_target over these epochs
+  patience: 15         # (spec) epochs without a better validation loss before stopping,
+                       # counted only after annealing
+  early_stopping: true # (spec) E6 compares it with training for max_epochs
+  check_rooms: 100     # (T21) after training, Set A test rooms to sample (64 each) for a first
+                       # RVR of M1; the E1 numbers come later, on the frozen configuration
+  outliers: 0.0        # (T26) E2's outlier variant: share of the training layouts that get one item
+                       # moved to a random spot in the room (0.04 in E2); validation and test stay clean
+
+latent_opt:            # M2: optimize z with the decoder frozen (T23, Tech Spec 5.2)
+  steps: 150           # (spec, start) T; E8 tries 0, 25, 50, 100 and 200
+  lr: 0.05             # (spec, start) Adam
+  lambda_overlap: 10.0 # (spec, start) sum over pairs of the squared penetration depth
+  lambda_room: 10.0    # (spec, start) protrusion out of the room
+  lambda_door: 10.0    # (spec, start) squared penetration into the door clearance zone
+  lambda_pin: 20.0     # (spec, start) squared distance of pinned items from their pins
+  lambda_anchor: 0.05  # (spec, start) 0.5 ||z - z0||^2, the anchor to each candidate's start
+  lambda_surrogate: 0.0  # (spec) the CNN score term of M3 (P1); 0 for M2
+  margin: 0.05         # (spec, start) clearance margin mu of the penetration depths (m)
+  tolerance: 1.0e-4    # (T23) a candidate stops once its constraint terms (the anchor not
+                       # counted, since it grows whenever z moves) fall below this
+
+pipeline:              # (T25, Tech Spec 5.1 and 5.3)
+  candidates: 64       # (spec) N latent samples per request
+  latent_opt: true     # (spec) M2; false gives M1
+  top_k: 3             # (spec)
+  tau_div: 0.3         # (spec, start) a pick must differ from every earlier pick by this much (m)
+  relax: 0.25          # (spec) when fewer than top_k qualify, tau_div shrinks by this share ...
+  relax_times: 2       # (spec) ... up to this many times
