@@ -37,19 +37,38 @@ def _legend_below(fig: Figure, ax) -> None:
                labelcolor=INK_SECONDARY)
 
 
-def _bars(ax, labels, groups: dict[str, list[float]], fmt: str, colors=None) -> None:
+def _bars(ax, labels, groups: dict[str, list[float]], fmt: str, colors=None, errors=None) -> None:
     """Grouped bars: one colour per group (or `colors`, one entry per group: a colour, or a list
-    with a colour per bar), each bar labelled with its value."""
+    with a colour per bar), each bar labelled with its value. `errors` (one list per group, NaN or
+    None for none) adds standard-deviation whiskers, with the label above the whisker."""
     width = 0.8 / len(groups)
     x = np.arange(len(labels))
     for i, (name, values) in enumerate(groups.items()):
-        heights = [np.nan if v is None else v for v in values]
+        heights = np.array([np.nan if v is None else v for v in values], dtype=float)
+        spread = np.zeros_like(heights) if errors is None else np.array(
+            [0.0 if e is None or np.isnan(e) else e for e in errors[i]], dtype=float)
         color = SERIES[i] if colors is None else colors[i]
-        bars = ax.bar(x + (i - (len(groups) - 1) / 2) * width, heights, width * 0.92, color=color, label=name)
-        ax.bar_label(bars, labels=["" if np.isnan(h) else format(h, fmt) for h in heights], padding=2, fontsize=5.5,
-                     color=INK_SECONDARY)
+        positions = x + (i - (len(groups) - 1) / 2) * width
+        ax.bar(positions, heights, width * 0.92, color=color, label=name,
+               yerr=None if errors is None else spread, error_kw={"ecolor": INK_SECONDARY, "elinewidth": 1, "capsize": 2})
+        for position, height, extra in zip(positions, heights, spread):
+            if not np.isnan(height):
+                ax.annotate(format(height, fmt), (position, height + extra), textcoords="offset points", xytext=(0, 2),
+                            ha="center", fontsize=5.5, color=INK_SECONDARY)
     ax.set_xticks(x, labels)
     _quiet_axes(ax)
+
+
+def _spread(table: pd.DataFrame, column: str, scale: float = 1.0) -> list[float] | None:
+    """The standard deviations of a column over the seeds, if the table has them."""
+    return (scale * table[f"{column}_std"]).tolist() if f"{column}_std" in table else None
+
+
+def _setting(table: pd.DataFrame) -> str:
+    """What a headline table holds: the first pass, or the frozen configuration over several seeds."""
+    seeds = int(table["seeds"].max()) if "seeds" in table else 1
+    return (f"frozen configuration; M1 and M2 as the mean and one standard deviation over {seeds} CVAE seeds"
+            if seeds > 1 else "first pass on the default configuration")
 
 
 # --------------------------------------------------------------------------- E2
@@ -267,13 +286,18 @@ def e7_walls(table: pd.DataFrame) -> Figure:
 
 def e8_steps(table: pd.DataFrame) -> Figure:
     """Raw validity, diversity ratio and time against the number of latent-optimization steps."""
-    fig = _figure(12, 3.6, "E8: latent-optimization steps on the default CVAE (M2), 100 test rooms x 64 samples\n"
-                           "0 steps is M1; the diversity ratio compares the valid samples with the generator (G0)")
+    seeds = int(table["seeds"].max()) if "seeds" in table else 1
+    model = (f"the frozen configuration (mean and one standard deviation over {seeds} CVAE seeds)" if seeds > 1
+             else "the default CVAE")
+    fig = _figure(12, 3.6, f"E8: latent-optimization steps on {model}, M2, {int(table['rooms'].iloc[0])} test rooms "
+                           "x 64 samples\n0 steps is M1; the diversity ratio compares the valid samples with the "
+                           "generator (G0)")
     axes = fig.subplots(1, 3)
     panels = (("rvr", 100, "raw valid (%)"), ("diversity_ratio", 1, "diversity ratio to G0"),
               ("seconds_per_room", 1, "seconds per room (CPU)"))
     for ax, (column, scale, label) in zip(axes, panels):
-        ax.plot(table["steps"], scale * table[column], color=SERIES[0], linewidth=2, marker="o", markersize=5)
+        ax.errorbar(table["steps"], scale * table[column], yerr=_spread(table, column, scale), color=SERIES[0],
+                    linewidth=2, marker="o", markersize=5, elinewidth=1, capsize=3)
         for x, y in zip(table["steps"], scale * table[column]):
             ax.annotate(f"{y:.2f}" if scale == 1 else f"{y:.1f}", (x, y), textcoords="offset points", xytext=(0, 6),
                         ha="center", fontsize=6, color=INK_SECONDARY)
@@ -292,16 +316,18 @@ SET_LABELS = {"in_distribution": "in distribution", "interpolation": "interpolat
 
 def e1_results(table: pd.DataFrame) -> Figure:
     """Raw validity, quality and cost per valid layout of every method on the same rooms."""
-    rooms, samples = int(table["rooms"].iloc[0]), int(table["samples"].iloc[0] / table["rooms"].iloc[0])
-    fig = _figure(12, 3.8, f"E1, first pass on the default configuration: {rooms} test rooms x {samples} raw samples "
-                           "per method\nG0 (grey) is the reference: valid by construction, its raw valid rate is its "
-                           "acceptance per attempt")
+    rooms, samples = int(table["rooms"].iloc[0]), int(round(table["samples"].iloc[0] / table["rooms"].iloc[0]))
+    fig = _figure(12, 3.8, f"E1, {_setting(table)}: {rooms} test rooms x {samples} raw samples per method\n"
+                           "G0 (grey) is the reference: valid by construction, its raw valid rate is its acceptance "
+                           "per attempt")
     axes = fig.subplots(1, 3)
     colors = [[METHOD_COLORS[m] for m in table["method"]]]
     panels = (("rvr", 100, "raw valid (%)", ".1f"), ("quality", 1, "quality of the valid layouts", ".2f"),
               ("ms_per_valid", 1, "ms per valid layout (CPU)", ".1f"))
     for ax, (column, scale, label, fmt) in zip(axes, panels):
-        _bars(ax, table["method"], {label: (scale * table[column]).tolist()}, fmt, colors)
+        spread = _spread(table, column, scale)
+        _bars(ax, table["method"], {label: (scale * table[column]).tolist()}, fmt, colors,
+              None if spread is None else [spread])
         ax.set(ylabel=label)
     axes[1].set_ylim(0, 1.05)
     return fig
@@ -309,13 +335,15 @@ def e1_results(table: pd.DataFrame) -> Figure:
 
 def e1_ranking(table: pd.DataFrame) -> Figure:
     """Quality of the top 3 the pipeline would show, with the valid layouts in three orders."""
-    fig = _figure(8.5, 4.0, "E1: mean rule quality of each room's diverse top 3 (rooms with a valid layout), with the\n"
-                            "valid layouts ranked by the CNN evaluator (the pipeline), by the exact rule score, or not at all")
+    fig = _figure(8.5, 4.0, f"E1, {_setting(table)}:\nmean rule quality of each room's diverse top 3 (rooms with a "
+                            "valid layout), the valid layouts ranked\nby the CNN evaluator (the pipeline), by the exact "
+                            "rule score, or not at all")
     ax = fig.add_subplot()
-    _bars(ax, table["method"], {"random order": table["quality_top3_random"].tolist(),
-                                "evaluator ranking (the pipeline)": table["quality_top3"].tolist(),
-                                "rule-score ranking (reference)": table["quality_top3_rule"].tolist()}, ".2f",
-          colors=[CONTEXT, SERIES[6], SERIES[5]])
+    columns = {"random order": "quality_top3_random", "evaluator ranking (the pipeline)": "quality_top3",
+               "rule-score ranking (reference)": "quality_top3_rule"}
+    spreads = [_spread(table, column) for column in columns.values()]
+    _bars(ax, table["method"], {label: table[column].tolist() for label, column in columns.items()}, ".2f",
+          colors=[CONTEXT, SERIES[6], SERIES[5]], errors=None if spreads[0] is None else spreads)
     ax.set(ylabel="quality of the top 3", ylim=(0, 1.05))
     _legend_below(fig, ax)
     return fig
@@ -328,18 +356,19 @@ def e10_generalization(table: pd.DataFrame) -> Figure:
     rows = table.set_index(["set", "method"])
     labels = [f"{SET_LABELS.get(s, s)}\n{rows.loc[(s, methods[0]), 'area_m2']:.0f} m², "
               f"{rows.loc[(s, methods[0]), 'items']:.1f} items" for s in sets]
-    fig = _figure(12, 4.3, "E10, first pass on the default configuration: generalization beyond the training rooms\n"
-                           "(mean room area and item count under each set); G0 shows how hard each set is by itself")
+    fig = _figure(12, 4.3, f"E10, {_setting(table)}:\ngeneralization beyond the training rooms (mean room area and "
+                           "item count under each set); G0 shows how hard each set is by itself")
     rvr_ax, quality_ax = fig.subplots(1, 2)
     colors = [METHOD_COLORS[m] for m in methods]
-    _bars(rvr_ax, labels, {METHOD_LABELS.get(m, m): [100 * rows.loc[(s, m), "rvr"] for s in sets] for m in methods},
-          ".1f", colors)
-    rvr_ax.set(ylabel="raw valid (%)")
-    _bars(quality_ax, labels, {METHOD_LABELS.get(m, m): [rows.loc[(s, m), "quality"] for s in sets] for m in methods},
-          ".2f", colors)
-    quality_ax.set(ylabel="quality of the valid layouts", ylim=(0, 1.05))
-    for ax in (rvr_ax, quality_ax):
+    for ax, column, scale, fmt in ((rvr_ax, "rvr", 100, ".1f"), (quality_ax, "quality", 1, ".2f")):
+        values = {METHOD_LABELS.get(m, m): [scale * rows.loc[(s, m), column] for s in sets] for m in methods}
+        spread = None
+        if f"{column}_std" in table:
+            spread = [[scale * rows.loc[(s, m), f"{column}_std"] for s in sets] for m in methods]
+        _bars(ax, labels, values, fmt, colors, spread)
         ax.tick_params(axis="x", labelsize=7)
+    rvr_ax.set(ylabel="raw valid (%)")
+    quality_ax.set(ylabel="quality of the valid layouts", ylim=(0, 1.05))
     _legend_below(fig, rvr_ax)
     return fig
 

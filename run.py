@@ -57,12 +57,16 @@ TASKS: dict[str, tuple[str, list[list[str]]]] = {
         [[PY, "-m", "experiments.screening"]],
     ),
     "e1": (
-        "E1 first pass: B1, B2, G0, M1 and M2 on the same 500 test rooms (--cvae RUN, --fresh)",
+        "E1: B1, B2, G0, M1 and M2 on the same 500 test rooms (--cvae RUN [RUN ...] --tag NAME, --fresh)",
         [[PY, "-m", "experiments.headline", "e1"]],
     ),
     "e10": (
-        "E10 first pass: M1, M2 and G0 on the in-distribution and the three held-out test sets",
+        "E10: M1, M2 and G0 on the in-distribution and the three held-out test sets (--sets to split the run)",
         [[PY, "-m", "experiments.headline", "e10"]],
+    ),
+    "e8": (
+        "E8 on one or several CVAE runs (the T33b headline; the screening's pass is `screen e8`)",
+        [[PY, "-m", "experiments.headline", "e8"]],
     ),
     "gate2": (
         "Gate 2 freeze: 3 seeds of the shortlisted CVAE settings on validation rooms; writes configs/frozen.yaml",

@@ -8,7 +8,7 @@ import pytest
 import torch
 
 from experiments.figures import FIGURES
-from experiments.headline import E10_METHODS, METHODS, SETS, Headline, TopThree
+from experiments.headline import E10_METHODS, METHODS, MODEL_FREE, SETS, Headline, TopThree, combine
 from spacegen.dataset import load_layouts
 from spacegen.evaluate import EvaluationConfig, evaluate_baselines
 from spacegen.latent_opt import load_latent_opt_config
@@ -109,3 +109,57 @@ def test_figures_draw_from_the_tables(make, tmp_path):
     for name, table in (("e1", headline.e1()), ("e10", headline.e10())):
         figures = FIGURES[name](table, tmp_path)
         assert figures and all(fig.axes for fig in figures.values())
+
+
+@pytest.fixture
+def seeds(tiny_dataset, tmp_path, catalog, rules, models):
+    """Two CVAE 'seeds' sharing one cache for B1, B2 and G0 (T33b)."""
+    _, evaluator, raster = models
+    log = []
+    runs = []
+    for k in range(2):
+        torch.manual_seed(k)
+        runs.append(Headline(tiny_dataset, tmp_path / f"seed-{k}", 0, SMALL, CVAE(CVAEConfig(hidden=16)), catalog,
+                             rules, load_latent_opt_config(steps=3), PipelineConfig(), evaluator, raster, "cpu",
+                             {"cvae": f"model {k}"}, log=log.append, baseline_cache=tmp_path / "baselines"))
+    return runs, log
+
+
+def test_several_runs_share_the_baselines_and_combine_into_mean_and_spread(seeds, tmp_path):
+    runs, log = seeds
+    tables = [run.e1() for run in runs]
+    computed = [line.split(":")[0] for line in log]
+    assert computed.count("in_distribution, B1") == 1 and computed.count("in_distribution, M2") == 2
+    pd.testing.assert_frame_equal(tables[0].iloc[:3], tables[1].iloc[:3])  # the same cached B1, B2, G0 rows
+    table = combine(tables, ["method"])
+    assert table["method"].tolist() == list(METHODS) and table["seeds"].tolist() == [1, 1, 1, 2, 2]
+    m2 = table.set_index("method").loc["M2"]
+    assert m2["rvr"] == pytest.approx(np.mean([t.set_index("method").loc["M2", "rvr"] for t in tables]))
+    assert m2["rvr_std"] == pytest.approx(np.std([t.set_index("method").loc["M2", "rvr"] for t in tables], ddof=1))
+    assert table.set_index("method").loc[list(MODEL_FREE), "rvr_std"].isna().all()
+    for figure in FIGURES["e1"](table, tmp_path).values():
+        assert figure.axes and "2 CVAE seeds" in figure.texts[0].get_text()
+
+
+def test_e10_can_be_computed_one_set_at_a_time(seeds, tmp_path):
+    runs, log = seeds
+    part = runs[0].e10(["interpolation"])
+    assert part["set"].unique().tolist() == ["interpolation"]
+    log.clear()
+    whole = runs[0].e10()
+    assert not any(line.startswith("interpolation") for line in log)  # computed in the first call
+    pd.testing.assert_frame_equal(whole[whole["set"] == "interpolation"].reset_index(drop=True), part)
+    table = combine([whole, runs[1].e10()], ["set", "method"])
+    assert list(zip(table["set"], table["method"])) == [(s, m) for s in SETS for m in E10_METHODS]
+    assert (table.loc[table["method"] == "G0", "seeds"] == 1).all()
+    assert all(fig.axes for fig in FIGURES["e10"](table, tmp_path).values())
+
+
+def test_e8_figure_takes_a_combined_table(tmp_path):
+    rows = [{"steps": s, "method": f"M2, {s} steps", "rooms": 4, "rvr": 0.1 + s / 400 + k / 100,
+             "diversity_ratio": 0.8, "seconds_per_room": 0.1 + s / 200} for k in range(2) for s in (0, 25, 50)]
+    tables = [pd.DataFrame(rows[:3]), pd.DataFrame(rows[3:])]
+    table = combine(tables, ["steps", "method"])
+    assert table["rvr_std"].round(6).tolist() == [round(np.std([0.0, 0.01], ddof=1), 6)] * 3
+    figure = FIGURES["e8"](table, tmp_path)["steps"]
+    assert "2 CVAE seeds" in figure.texts[0].get_text()

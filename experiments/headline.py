@@ -4,8 +4,17 @@ python run.py e1     B1, B2, G0, M1 and M2 on the E1 rooms: reports/tables/e1.cs
 python run.py e10    M1, M2 and G0 on the four test sets: reports/tables/e10.csv and its figure
 
 --cvae RUN chooses the CVAE (default runs/cvae/default) and --evaluator RUN the ranker (default
-runs/evaluator/e9a). Before Gate 2 both experiments run on the default configuration to debug the
-pipeline; T33b reruns them on the frozen configuration for the headline numbers.
+runs/evaluator/e9a). Before Gate 2 both experiments ran on the default configuration to debug the
+pipeline (T28, T30). The headline numbers (T33b) come from the three seeds of the frozen
+configuration:
+
+python run.py e1 --tag final --cvae runs/cvae/frozen/seed-0 runs/cvae/frozen/seed-1 runs/cvae/frozen/seed-2
+python run.py e8 --tag final --cvae ...      (E8: latent-optimization steps, on the 200 diversity rooms)
+python run.py e10 --tag final --cvae ... [--sets interpolation ...]
+
+With several runs M1 and M2 are reported as the mean and standard deviation over the seeds (every
+seed samples the same rooms with the same draws, so the spread is the training's); B1, B2 and G0
+do not depend on the CVAE and run once. The tables are reports/tables/<experiment>_<tag>.csv.
 
 E1   The evaluation protocol of spacegen.evaluate: the same 500 rooms and 64 raw samples per room
      for every method. B1, B2 and G0 draw from one generator in that order, as `python run.py
@@ -20,10 +29,11 @@ E10  M1, M2 and G0 on the E1 rooms (in distribution) and on the first 500 rooms 
      8 m, D 6 to 7 m). G0, added to the spec's M1 and M2, shows how hard each set is by itself:
      room size alone moves the quality score, through circulation for example.
 
-Per-room rows are kept in runs/headline/<cvae run>/<set>/<method>.csv and reused while the inputs
-(inputs.json: dataset, models, seed, rooms, samples, latent-optimization and top-3 settings) stay
-the same; --fresh recomputes them, which a change to the code needs. So E10 takes the
-in-distribution rows from E1, and an interrupted run resumes where it stopped.
+Per-room rows are kept in runs/headline/<cvae run>/<set>/<method>.csv (with --tag:
+runs/headline/<tag>/<cvae run>/..., and runs/headline/<tag>/baselines/... for B1, B2 and G0) and
+reused while the inputs (inputs.json: dataset, models, seed, rooms, samples, latent-optimization
+and top-3 settings) stay the same; --fresh recomputes them, which a change to the code needs. So
+E10 takes the in-distribution rows from E1, and an interrupted run resumes where it stopped.
 """
 from __future__ import annotations
 
@@ -56,10 +66,12 @@ from spacegen.provenance import dataset_hash, write_run_record
 from spacegen.raster import RasterConfig, rasterize_layouts
 from spacegen.rules import Rules, load_rules
 from spacegen.seed import set_seed
+from experiments.screening import E8_STEPS, run_latent_steps
 
 SETS = ("in_distribution", "interpolation", "unseen_combination", "out_of_range")  # the E10 test sets
 ROOM_SETS = (*SETS, "validation")  # (T33) Set A validation rooms, for choosing the frozen configuration
 METHODS = ("B1", "B2", "G0", "M1", "M2")
+MODEL_FREE = ("B1", "B2", "G0")  # do not depend on the CVAE: computed once for several runs
 E10_METHODS = ("M1", "M2", "G0")
 ORDERS = {"evaluator": "quality_top3", "rule": "quality_top3_rule", "random": "quality_top3_random"}
 
@@ -100,20 +112,19 @@ class Headline:
                  catalog: RoomCatalog, rules: Rules, latent: LatentOptConfig, pipeline: PipelineConfig,
                  evaluator: Evaluator | None = None, raster: RasterConfig | None = None,
                  rank_device: str | torch.device = "cpu", inputs: dict | None = None, fresh: bool = False,
-                 log=print):
+                 log=print, baseline_cache: Path | None = None):
         self.data_dir, self.cache, self.seed, self.config = data_dir, cache, seed, config
+        self.baseline_cache = baseline_cache or cache  # B1, B2 and G0 (T33b: shared by several runs)
         self.cvae = cvae.cpu().eval()  # every sampler runs on the CPU, so the costs compare
         self.catalog, self.rules, self.latent, self.pipeline = catalog, rules, latent, pipeline
         self.evaluator, self.raster, self.rank_device, self.log = evaluator, raster, rank_device, log
         inputs = json.loads(json.dumps({**(inputs or {}), "seed": seed, "rooms": config.rooms,
                                         "samples": config.samples, "latent_opt": dataclasses.asdict(latent),
                                         "pipeline": dataclasses.asdict(pipeline)}))
-        stored = cache / "inputs.json"
-        if fresh or not stored.exists() or json.loads(stored.read_text(encoding="utf-8")) != inputs:
-            for old in cache.glob("*/*.csv"):  # made with other inputs, or a fresh start was asked for
-                old.unlink()
-            cache.mkdir(parents=True, exist_ok=True)
-            stored.write_text(json.dumps(inputs, indent=2), encoding="utf-8", newline="\n")
+        _keep_or_clear(cache, inputs, fresh)
+        if self.baseline_cache != cache:
+            _keep_or_clear(self.baseline_cache, {k: v for k, v in inputs.items() if k not in ("cvae", "latent_opt")},
+                           fresh)
 
     def rooms(self, set_name: str) -> tuple[list[Condition], pd.Series]:
         """The rooms of a test set (or of the validation split), and the G0 reference diversity per
@@ -133,9 +144,9 @@ class Headline:
 
     def per_room(self, set_name: str, method: str) -> pd.DataFrame:
         """The per-room rows of a method on a test set (spacegen.evaluate.evaluate), computed once."""
-        path = self.cache / set_name / f"{method}.csv"
+        path = self._path(set_name, method)
         if not path.exists():
-            if set_name == "in_distribution" and method in ("B1", "B2", "G0"):
+            if set_name == "in_distribution" and method in MODEL_FREE:
                 self._baselines()
             else:
                 self._run(set_name, method)
@@ -155,10 +166,10 @@ class Headline:
         first = ["method", "rooms", "samples", "rvr", "mean_overlap", "reachability", "quality", *ORDERS.values()]
         return table[first + [c for c in table.columns if c not in first]]
 
-    def e10(self) -> pd.DataFrame:
+    def e10(self, sets=SETS) -> pd.DataFrame:
         """One row per test set and method (M1, M2, G0), with the set's mean room area and item count."""
         rows = []
-        for set_name in SETS:
+        for set_name in sets:
             conditions, reference = self.rooms(set_name)
             context = {"set": set_name, "area_m2": float(np.mean([c.area for c in conditions])),
                        "items": float(np.mean([len(c.items) for c in conditions]))}
@@ -192,7 +203,7 @@ class Headline:
         top = TopThree(self.pipeline, self._rng(set_name, 2, METHODS.index(method)), self.catalog, self.rules,
                        self.evaluator, self.raster, self.rank_device)
         rows = evaluate(sampler, conditions, self.config.samples, rng, self.catalog, self.rules, prefiltered, top)
-        path = self.cache / set_name / f"{method}.csv"
+        path = self._path(set_name, method)
         path.parent.mkdir(parents=True, exist_ok=True)
         rows.to_csv(path, index=False, lineterminator="\n")
         self.log(f"{set_name}, {method}: {len(rows)} rooms in {time.perf_counter() - start:.0f} s, "
@@ -201,22 +212,58 @@ class Headline:
     def _rng(self, set_name: str, *salt: int) -> np.random.Generator:
         return np.random.default_rng([self.seed, ROOM_SETS.index(set_name), *salt])
 
+    def _path(self, set_name: str, method: str) -> Path:
+        return (self.baseline_cache if method in MODEL_FREE else self.cache) / set_name / f"{method}.csv"
+
+
+def _keep_or_clear(cache: Path, inputs: dict, fresh: bool) -> None:
+    """Keep the cached rows only if they were made with these inputs (and no fresh start was asked for)."""
+    stored = cache / "inputs.json"
+    if fresh or not stored.exists() or json.loads(stored.read_text(encoding="utf-8")) != inputs:
+        for old in [*cache.glob("*.csv"), *cache.glob("*/*.csv")]:  # per-room rows and the E8 table
+            old.unlink()
+        cache.mkdir(parents=True, exist_ok=True)
+        stored.write_text(json.dumps(inputs, indent=2), encoding="utf-8", newline="\n")
+
+
+def combine(tables: list[pd.DataFrame], keys: list[str]) -> pd.DataFrame:
+    """Mean and standard deviation (columns <metric>_std) over the runs' tables, in their row order.
+    B1, B2 and G0 come from the same cached rows in every run, so they count as one run without a spread."""
+    stacked = pd.concat(tables, ignore_index=True)
+    numeric = [c for c in stacked.columns if c not in keys and pd.api.types.is_numeric_dtype(stacked[c])]
+    groups = stacked.groupby(keys, sort=False)[numeric]
+    table = groups.mean().join(groups.std(ddof=1).add_suffix("_std")).reset_index()
+    table.insert(len(keys), "seeds", len(tables))
+    model_free = table["method"].isin(MODEL_FREE)
+    table.loc[model_free, "seeds"] = 1
+    table.loc[model_free, [f"{c}_std" for c in numeric]] = np.nan
+    return table
+
 
 def _file_hash(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="E1 and E10, first pass on the default configuration (T28, T30).")
-    parser.add_argument("experiments", nargs="+", choices=["e1", "e10"])
-    parser.add_argument("--cvae", type=Path, default=RUNS_DIR / "cvae" / "default")
+    parser = argparse.ArgumentParser(description="E1, E8 and E10 (T28, T30 first pass; T33b headline).")
+    parser.add_argument("experiments", nargs="+", choices=["e1", "e8", "e10"])
+    parser.add_argument("--cvae", type=Path, nargs="+", default=[RUNS_DIR / "cvae" / "default"],
+                        help="one CVAE run, or several (the seeds of the frozen configuration)")
+    parser.add_argument("--tag", default=None,
+                        help="name of the results (reports/tables/<experiment>_<tag>.csv, runs/headline/<tag>/); "
+                             "needed with several runs")
     parser.add_argument("--evaluator", type=Path, default=RUNS_DIR / "evaluator" / "e9a",
                         help="ranks the top 3; without it only the rule-score and random orders are reported")
     parser.add_argument("--data", type=Path, default=None, help="default: data/<version from configs/default.yaml>")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu",
                         help="for the evaluator's ranking only; the samplers always run on the CPU")
+    parser.add_argument("--sets", nargs="+", choices=SETS, default=list(SETS),
+                        help="E10: compute only these sets (the table is written once all four are done)")
+    parser.add_argument("--e8-rooms", type=int, default=200, help="E8: the first rooms of the E1 list (diversity rooms)")
     parser.add_argument("--fresh", action="store_true", help="recompute the cached per-room rows")
     args = parser.parse_args(argv)
+    if len(args.cvae) > 1 and args.tag is None:
+        parser.error("several --cvae runs need a --tag")
     raw = load_config()
     seed = raw["seed"]
     set_seed(seed)
@@ -225,29 +272,55 @@ def main(argv: list[str] | None = None) -> int:
     has_evaluator = (args.evaluator / "model.pt").exists()
     evaluator, raster = load_evaluator_run(args.evaluator, args.device) if has_evaluator else (None, None)
     latent, pipeline, config = load_latent_opt_config(), load_pipeline_config(), load_evaluation_config()
-    cache = RUNS_DIR / "headline" / args.cvae.name
-    inputs = {"dataset_hash": dataset_hash(data_dir), "cvae": _file_hash(args.cvae / "model.pt"),
-              "evaluator": _file_hash(args.evaluator / "model.pt") if has_evaluator else None}
-    headline = Headline(data_dir, cache, seed, config, load_cvae_run(args.cvae), catalog, rules, latent, pipeline,
-                        evaluator, raster, args.device, inputs, args.fresh)
-    write_run_record(cache, seed, data_dir, task="T28 and T30: first pass of E1 and E10", cvae_run=str(args.cvae),
-                     evaluator_run=str(args.evaluator) if has_evaluator else None, ranking_device=str(args.device),
-                     evaluation=dataclasses.asdict(config), latent_opt=dataclasses.asdict(latent),
-                     pipeline=dataclasses.asdict(pipeline))
+    root = RUNS_DIR / "headline" / args.tag if args.tag else None
+    headlines = []
+    for run in args.cvae:
+        cache = root / run.name if root else RUNS_DIR / "headline" / run.name
+        inputs = {"dataset_hash": dataset_hash(data_dir), "cvae": _file_hash(run / "model.pt"),
+                  "evaluator": _file_hash(args.evaluator / "model.pt") if has_evaluator else None}
+        headlines.append(Headline(data_dir, cache, seed, config, load_cvae_run(run), catalog, rules, latent, pipeline,
+                                  evaluator, raster, args.device, inputs, args.fresh,
+                                  baseline_cache=root / "baselines" if root else None))
+        write_run_record(cache, seed, data_dir, task="E1, E8 and E10 (T28, T30, T33b)", cvae_run=str(run),
+                         evaluator_run=str(args.evaluator) if has_evaluator else None,
+                         ranking_device=str(args.device), evaluation=dataclasses.asdict(config),
+                         latent_opt=dataclasses.asdict(latent), pipeline=dataclasses.asdict(pipeline))
     from experiments.figures import FIGURES
 
     tables_dir, figures_dir = REPORTS_DIR / "tables", REPORTS_DIR / "figures"
+    suffix = f"_{args.tag}" if args.tag else ""
     for name in args.experiments:
-        table = headline.e1() if name == "e1" else headline.e10()
+        if name == "e1":
+            tables = [h.e1() for h in headlines]
+            keys = ["method"]
+        elif name == "e10":
+            tables = [h.e10(args.sets) for h in headlines]
+            keys = ["set", "method"]
+            if set(args.sets) != set(SETS):
+                print(f"computed {', '.join(args.sets)}; the E10 table is written once all four sets are done")
+                continue
+        else:
+            tables = [_latent_steps(h, run, args.e8_rooms) for h, run in zip(headlines, args.cvae)]
+            keys = ["steps", "method"]
+        table = tables[0] if len(tables) == 1 else combine(tables, keys)
         tables_dir.mkdir(parents=True, exist_ok=True)
-        table.round(5).to_csv(tables_dir / f"{name}.csv", index=False, lineterminator="\n")
-        with pd.option_context("display.width", 250, "display.max_columns", 30):
+        table.round(5).to_csv(tables_dir / f"{name}{suffix}.csv", index=False, lineterminator="\n")
+        with pd.option_context("display.width", 250, "display.max_columns", 40):
             print(table.round(4).to_string(index=False))
         figures_dir.mkdir(parents=True, exist_ok=True)
-        for figure_name, figure in FIGURES[name](table, cache).items():
-            figure.savefig(figures_dir / f"{name}_{figure_name}.png", facecolor="#fcfcfb")
-        print(f"wrote reports/tables/{name}.csv and its figures")
+        for figure_name, figure in FIGURES[name](table, None).items():
+            figure.savefig(figures_dir / f"{name}{suffix}_{figure_name}.png", facecolor="#fcfcfb")
+        print(f"wrote reports/tables/{name}{suffix}.csv and its figures")
     return 0
+
+
+def _latent_steps(headline: Headline, run: Path, rooms: int) -> pd.DataFrame:
+    """E8 for one CVAE run (experiments.screening.run_latent_steps), cached next to its per-room rows."""
+    path = headline.cache / f"e8_{rooms}_rooms.csv"
+    if not path.exists():
+        table = run_latent_steps(headline.data_dir, headline.seed, "cpu", E8_STEPS, rooms, run, log=headline.log)
+        table.to_csv(path, index=False, lineterminator="\n")
+    return pd.read_csv(path)
 
 
 if __name__ == "__main__":

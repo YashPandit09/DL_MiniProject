@@ -101,6 +101,7 @@ def test_a_run_records_where_it_came_from(run, tiny_dataset):
     record = json.loads((out / "run.json").read_text(encoding="utf-8"))
     metadata = json.loads((tiny_dataset / "metadata.json").read_text(encoding="utf-8"))
     assert record["dataset_hash"] == metadata["hash"] and record["cvae"]["hidden"] == 32
+    assert record["config"].endswith("default.yaml")  # T33b: the configuration file is recorded
     assert pd.read_csv(out / "log.csv").shape[0] == len(log)
     state = torch.load(out / "model.pt", weights_only=True)
     model = CVAE(SMALL)

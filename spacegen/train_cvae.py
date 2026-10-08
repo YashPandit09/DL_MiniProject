@@ -199,14 +199,14 @@ def with_outliers(batch: LayoutBatch, share: float, rng: np.random.Generator,
 
 def train_cvae(data_dir: Path, out_dir: Path, seed: int, device: str | torch.device,
                model_config: CVAEConfig | None = None, training: TrainingConfig | None = None,
-               catalog: RoomCatalog | None = None, log=print) -> pd.DataFrame:
-    """Train on the Set A training split; returns the per-epoch log."""
+               catalog: RoomCatalog | None = None, log=print, config_path: Path = DEFAULT_CONFIG) -> pd.DataFrame:
+    """Train on the Set A training split; returns the per-epoch log. `config_path` is recorded in run.json."""
     set_seed(seed)
     if model_config is None or training is None:
         defaults = load_configs()
         model_config, training = model_config or defaults[0], training or defaults[1]
     catalog = catalog or load_room_catalog("living_room")
-    write_run_record(out_dir, seed, data_dir, task="T21 CVAE training", device=str(device),
+    write_run_record(out_dir, seed, data_dir, task="T21 CVAE training", device=str(device), config=str(config_path),
                      cvae=dataclasses.asdict(model_config), cvae_training=dataclasses.asdict(training))
     set_a = load_layouts(data_dir / "set_a.npz")
     with np.load(data_dir / "splits.npz") as splits:
@@ -303,19 +303,21 @@ def m1_check(model: CVAE, set_a, test_rows: np.ndarray, n_rooms: int, seed: int,
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Train the CVAE on Set A.")
-    parser.add_argument("--name", default="default", help="run folder under runs/cvae/")
+    parser.add_argument("--name", default="default", help="run folder under runs/cvae/ (may contain a /)")
+    parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG,
+                        help="configuration file, e.g. configs/frozen.yaml for the final runs (T33b)")
     parser.add_argument("--set", dest="overrides", action="append", default=[],
                         help="override a config value, e.g. cvae.activation=elu (repeatable)")
     parser.add_argument("--seed", type=int, default=None, help="default: the seed in configs/default.yaml")
     parser.add_argument("--data", type=Path, default=None, help="default: data/<version from configs/default.yaml>")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = parser.parse_args(argv)
-    raw = load_config()
-    model_config, training = load_configs(overrides=args.overrides)
+    raw = load_config(args.config)
+    model_config, training = load_configs(args.config, overrides=args.overrides)
     data_dir = args.data or DATA_DIR / raw["dataset"]["version"]
     out_dir = RUNS_DIR / "cvae" / args.name
     seed = raw["seed"] if args.seed is None else args.seed
-    train_cvae(data_dir, out_dir, seed, args.device, model_config, training)
+    train_cvae(data_dir, out_dir, seed, args.device, model_config, training, config_path=args.config)
     print(json.dumps(json.loads((out_dir / "summary.json").read_text(encoding="utf-8")), indent=2))
     print(f"wrote {out_dir}")
     return 0
