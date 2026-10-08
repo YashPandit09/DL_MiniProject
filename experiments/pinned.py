@@ -40,7 +40,7 @@ from spacegen.evaluate import evaluate, generator_sampler
 from spacegen.generator import Condition
 from spacegen.latent_opt import LatentOptConfig, load_latent_opt_config
 from spacegen.models.cvae import CVAE
-from spacegen.paths import DATA_DIR, REPORTS_DIR, RUNS_DIR
+from spacegen.paths import CHECKPOINTS_DIR, DATA_DIR, REPORTS_DIR, RUNS_DIR
 from spacegen.pins import Pin, PinnedSampler
 from spacegen.pipeline import CVAESampler, LatentOptSampler, load_cvae_run
 from spacegen.provenance import dataset_hash, write_run_record
@@ -125,7 +125,8 @@ def summarize(rows: pd.DataFrame) -> pd.DataFrame:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="E12: completion around a pinned item (T38).")
-    frozen = sorted((RUNS_DIR / "cvae" / "frozen").glob("seed-*"))
+    frozen = (sorted((RUNS_DIR / "cvae" / "frozen").glob("seed-*"))
+              or sorted((CHECKPOINTS_DIR / "cvae" / "frozen").glob("seed-*")))  # a fresh clone has only the copies
     parser.add_argument("--cvae", type=Path, nargs="+", default=frozen or [RUNS_DIR / "cvae" / "default"])
     parser.add_argument("--rooms", type=int, default=60, help="requests per pinned item")
     parser.add_argument("--samples", type=int, default=64)

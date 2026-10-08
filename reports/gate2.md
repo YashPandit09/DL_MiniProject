@@ -19,9 +19,9 @@
 | 4 | Pipeline returns 3 layouts end to end | Done | `python run.py generate --width 5 --depth 4 --door W --items ...` writes `reports/demo/top1.json` to `top3`; `tests/test_pipeline.py` |
 | 5 | E2 to E7 screening results saved; the activation chosen from E3a (BatchNorm on); the best configuration written to `configs/frozen.yaml` | Done | `reports/tables/e2.csv` to `e8.csv` and their figures; the choice in Section 3, `python run.py gate2` |
 | 6 | First passes of E1 and E10 run without errors | Done | `reports/tables/e1.csv`, `e10.csv`, `reports/figures/e1_*.png`, `e10_generalization.png` (`python run.py e1`, `python run.py e10`) |
-| 7 | Final 3-seed runs on the frozen configuration launched | **Next** | T33b |
+| 7 | Final 3-seed runs on the frozen configuration launched | Done (T33b, 2026-10-08) | `runs/cvae/frozen/seed-0` to `seed-2`, trained from `configs/frozen.yaml`, are bit-identical to the three MAE runs of Section 3; the headline tables are `reports/tables/e1_final.csv`, `e8_final.csv` and `e10_final.csv` |
 | 8 | Actual hours logged for Week 2; above 15% over plan, apply the reduction ladder before any P1 or P2 task | **To do** | Fill in Section 5 |
-| 9 | Go or no-go recorded for pinned furniture (T38), real rooms (T39), surrogate (T50), 3D (T40), bedroom (T32) | **To decide** | Recommendation in Section 6 |
+| 9 | Go or no-go recorded for pinned furniture (T38), real rooms (T39), surrogate (T50), 3D (T40), bedroom (T32) | Recorded 2026-10-08 | T38: go, and built (experiment E12). T39: open, it needs 15 to 20 rooms measured by the team. T50, T40, T32: no-go. Reasons in Section 6 |
 
 Also due at Gate 2: cross-teaching session #2 (Section 4). By the plan's rule, extras start only once all nine boxes are ticked and the remaining days still cover the report and viva preparation with a spare day.
 
@@ -177,5 +177,5 @@ Planned effort from the Development Plan (S = 1.5 h, M = 3 h, L = 6 h; joint tas
 | T32 bedroom (P2) | L (6 h) | No-go | Needs heights, prices and the bed's facing, plus a new generator and dataset |
 
 - Run cross-teaching session #2 (Section 4) and fill in the hours (Section 5).
-- T33b: train the frozen configuration with three seeds, then the headline E1, E8 and E10 numbers (mean and standard deviation over the seeds).
-- Week 3 also builds the app (T34, T36), the figures script (T35) and the failure analysis (T37).
+- T33b, done after this review: the frozen configuration trained with three seeds, and the headline E1, E8 and E10 numbers (mean and standard deviation over the seeds). They are in the report, `reports/report.md`.
+- Week 3 also built the app (T34, T36), the figures script (T35), the failure analysis (T37) and pinned furniture (T38).

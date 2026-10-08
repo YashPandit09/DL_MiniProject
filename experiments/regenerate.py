@@ -3,6 +3,7 @@
 python run.py all [--from STEP] [--to STEP]     run the steps below in order (--list prints them)
 python run.py check-regeneration                compare with the saved results
 python run.py check-regeneration --record       save the models' and the dataset's hashes
+python run.py export-checkpoints                copy the final models to checkpoints/ (committed)
 
 A real regeneration must reuse nothing, and must not destroy the saved results before the new
 ones are checked. So it writes to another folder:
@@ -31,6 +32,10 @@ The check compares, on the same machine:
   models    the SHA-256 of every trained model.pt with reports/model_hashes.json.
   dataset   the content hash of data/<version>/ with the one in reports/model_hashes.json.
   frozen    the regenerated configs/frozen.yaml with the repository's (comments aside).
+  copies    the models committed in checkpoints/ with the same hashes.
+
+checkpoints/ holds the three frozen CVAE seeds and the evaluator with their run records, so a
+fresh clone can run the app and the pipeline without training (spacegen.paths.saved_run).
 """
 from __future__ import annotations
 
@@ -38,21 +43,23 @@ import argparse
 import hashlib
 import io
 import json
+import shutil
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 import pandas as pd
 import yaml
 
 from spacegen.config import load_config
-from spacegen.paths import CONFIG_DIR, DATA_DIR, OUTPUT_ROOT, REPO_ROOT, REPORTS_DIR, RUNS_DIR
+from spacegen.paths import CHECKPOINTS_DIR, CONFIG_DIR, DATA_DIR, OUTPUT_ROOT, REPO_ROOT, REPORTS_DIR, RUNS_DIR
 
 PY = sys.executable
 FROZEN = [f"runs/cvae/frozen/seed-{k}" for k in range(3)]  # relative to OUTPUT_ROOT; resolved in final()
 HELD_OUT = ("interpolation", "unseen_combination", "out_of_range")
 TRAINED = ("cvae/default", "cvae/screen", "cvae/gate2", "cvae/frozen", "evaluator/e9a")  # below runs/
 HASHES = REPO_ROOT / "reports" / "model_hashes.json"  # the saved reference, in the repository
+EXPORTED = ("cvae/frozen/seed-0", "cvae/frozen/seed-1", "cvae/frozen/seed-2", "evaluator/e9a")  # copied to checkpoints/
 
 
 def final(experiment: str, *options: str) -> list[str]:
@@ -130,6 +137,22 @@ def record(path: Path = HASHES, runs_dir: Path = RUNS_DIR, data_dir: Path | None
     return saved
 
 
+def export_checkpoints(runs_dir: Path = RUNS_DIR, target: Path = CHECKPOINTS_DIR) -> list[Path]:
+    """Copy the final models and their run records to checkpoints/. In the copied record the
+    dataset's path is written relative to the repository, as data/<version>."""
+    copies = []
+    for run in EXPORTED:
+        source, copy = runs_dir / run, target / run
+        copy.mkdir(parents=True, exist_ok=True)
+        for name in ("model.pt", "summary.json", "log.csv"):
+            shutil.copyfile(source / name, copy / name)
+        record = json.loads((source / "run.json").read_text(encoding="utf-8"))
+        record["dataset"] = "data/" + PureWindowsPath(record["dataset"]).name
+        (copy / "run.json").write_text(json.dumps(record, indent=2), encoding="utf-8", newline="\n")
+        copies.append(copy)
+    return copies
+
+
 def committed(name: str, repo: Path = REPO_ROOT) -> str | None:
     """reports/tables/<name> in the repository's last commit, or None if it is not committed."""
     shown = subprocess.run(["git", "show", f"HEAD:reports/tables/{name}"], cwd=repo, capture_output=True, text=True,
@@ -149,7 +172,8 @@ def compare_table(saved: pd.DataFrame, new: pd.DataFrame) -> str | None:
 
 
 def check(tables_dir: Path = REPORTS_DIR / "tables", hashes: Path = HASHES, runs_dir: Path = RUNS_DIR,
-          data_dir: Path | None = None, frozen: Path | None = None, show=committed, log=print) -> int:
+          data_dir: Path | None = None, frozen: Path | None = None, show=committed, log=print,
+          copies: Path = CHECKPOINTS_DIR) -> int:
     """Compare tables, models, the dataset and the frozen configuration with what is saved; returns
     the number of differences. Tables, runs or a dataset that are not there are reported, not counted."""
     problems = 0
@@ -177,6 +201,13 @@ def check(tables_dir: Path = REPORTS_DIR / "tables", hashes: Path = HASHES, runs
         else:
             problems += found != wanted
             log(f"dataset {data_dir.name}: {'identical' if found == wanted else 'DIFFERENT'} ({found[:16]}...)")
+        exported = {run: hashlib.sha256((copies / run / "model.pt").read_bytes()).hexdigest()
+                    for run in EXPORTED if (copies / run / "model.pt").exists()}
+        wrong = [run for run, digest in exported.items() if saved["models"].get(run) != digest]
+        problems += len(wrong)
+        if exported:
+            log(f"checkpoints: {len(exported) - len(wrong)} of {len(exported)} committed copies match the saved hashes"
+                + (f"; different: {', '.join(wrong)}" if wrong else ""))
     else:
         log(f"no {hashes.name}: record the hashes first (python run.py check-regeneration --record)")
     frozen = frozen or OUTPUT_ROOT / "configs" / "frozen.yaml"
@@ -191,7 +222,7 @@ def check(tables_dir: Path = REPORTS_DIR / "tables", hashes: Path = HASHES, runs
 def main(argv: list[str] | None = None) -> int:
     names = [name for name, _ in steps()]
     parser = argparse.ArgumentParser(description="Regenerate every result, or check a regeneration (T46).")
-    parser.add_argument("action", choices=["all", "check"])
+    parser.add_argument("action", choices=["all", "check", "export"])
     parser.add_argument("--from", dest="first", choices=names, default=None)
     parser.add_argument("--to", dest="last", choices=names, default=None)
     parser.add_argument("--list", action="store_true", help="all: print the steps and their commands, run nothing")
@@ -204,6 +235,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.action == "all":
         return run_all(args.first, args.last)
+    if args.action == "export":
+        print(f"copied {len(export_checkpoints())} runs to {CHECKPOINTS_DIR}")
+        return 0
     if args.record:
         saved = record()
         print(f"recorded {len(saved['models'])} model hashes and the dataset hash in {HASHES}")

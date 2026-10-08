@@ -11,7 +11,8 @@ layout_png(), layout_json()    the exports
 result_figures()    the saved figures for the "Training and results" tab
 
 The models come from runs/cvae/frozen/seed-0 (or runs/cvae/default before the freeze) and
-runs/evaluator/e9a; the environment variables SPACEGEN_CVAE_RUN, SPACEGEN_EVALUATOR_RUN and
+runs/evaluator/e9a, or from their committed copies in checkpoints/ when runs/ does not have them
+(a fresh clone); the environment variables SPACEGEN_CVAE_RUN, SPACEGEN_EVALUATOR_RUN and
 SPACEGEN_DATA_DIR point the app elsewhere (the tests use them).
 """
 from __future__ import annotations
@@ -37,7 +38,7 @@ from spacegen.layout import Layout, layout_to_dict
 from spacegen.metrics import score_layouts
 from spacegen.models.cvae import CVAE
 from spacegen.models.evaluator import Evaluator
-from spacegen.paths import DATA_DIR, REPORTS_DIR, RUNS_DIR
+from spacegen.paths import DATA_DIR, REPORTS_DIR, saved_run
 from spacegen.pins import Pin, PinnedSampler, pin_errors
 from spacegen.pipeline import (CVAESampler, LatentOptSampler, PipelineResult, Request, check_request, choose_variants,
                                generate, load_cvae_run, load_evaluator_run, load_pipeline_config)
@@ -83,11 +84,11 @@ class Models:
 
 def default_runs() -> tuple[Path, Path, Path]:
     """(CVAE run, evaluator run, dataset folder), each overridable by its environment variable."""
-    frozen = RUNS_DIR / "cvae" / "frozen" / "seed-0"
-    cvae = frozen if (frozen / "model.pt").exists() else RUNS_DIR / "cvae" / "default"
+    frozen = saved_run("cvae", "frozen", "seed-0")
+    cvae = frozen if (frozen / "model.pt").exists() else saved_run("cvae", "default")
     data = DATA_DIR / load_config()["dataset"]["version"]
     return (Path(os.environ.get("SPACEGEN_CVAE_RUN", cvae)), Path(os.environ.get("SPACEGEN_EVALUATOR_RUN",
-            RUNS_DIR / "evaluator" / "e9a")), Path(os.environ.get("SPACEGEN_DATA_DIR", data)))
+            saved_run("evaluator", "e9a"))), Path(os.environ.get("SPACEGEN_DATA_DIR", data)))
 
 
 def load_models(catalog: RoomCatalog, cvae_run: Path | None = None, evaluator_run: Path | None = None,

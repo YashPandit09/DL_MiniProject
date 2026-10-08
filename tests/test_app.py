@@ -184,3 +184,23 @@ def test_app_keeps_a_pinned_item_on_its_spot(app):
     ((name, wanted),) = used[-1]
     assert name == "sofa" and (wanted.x, wanted.y) == (2.5, 2.0) and result.request.pins == {"sofa": wanted}
     assert all(np.allclose(candidate.layout.center[0], (2.5, 2.0), atol=1e-5) for candidate in result.top)
+
+
+def test_demo_assets_come_from_the_apps_logic(models, catalog, rules, tmp_path):
+    from experiments.demo_assets import make_assets
+
+    written = make_assets(models, tmp_path, catalog, rules, candidates=16, log=lambda message: None)
+    names = {path.name for path in written}
+    assert {"layouts.png", "pinned.png", "compare.csv", "compare.png"} <= names
+    assert all(path.exists() and path.stat().st_size > 0 for path in written)
+
+
+def test_generate_command_takes_a_pin(runs, tmp_path, capsys):
+    from spacegen.pipeline import main
+
+    code = main(["--width", "5", "--depth", "4", "--door", "W", "--items", "sofa,tv_unit", "--pin", "sofa:2.5,3.4,S",
+                 "--cvae", str(runs[0]), "--evaluator", str(runs[1]), "--out", str(tmp_path)])
+    assert code == 0 and "candidates valid" in capsys.readouterr().out
+    for path in tmp_path.glob("top*.json"):
+        sofa = next(item for item in json.loads(path.read_text(encoding="utf-8"))["items"] if item["slot"] == 0)
+        assert (sofa["x"], sofa["y"]) == pytest.approx((2.5, 3.4), abs=1e-5) and sofa["rotation"] == 2

@@ -38,7 +38,7 @@ from spacegen.evaluate import evaluation_rooms
 from spacegen.latent_opt import load_latent_opt_config
 from spacegen.layout import Layout
 from spacegen.metrics import diversity
-from spacegen.paths import DATA_DIR, REPORTS_DIR, RUNS_DIR
+from spacegen.paths import DATA_DIR, REPORTS_DIR, saved_run
 from spacegen.pipeline import CVAESampler, LatentOptSampler, load_cvae_run
 from spacegen.quality import quality_score
 from spacegen.rules import Rules, check_layout, load_rules, reachability
@@ -181,8 +181,9 @@ def plot_cases(cases: list[tuple[str, Sample]], catalog: RoomCatalog, rules: Rul
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Failure-case analysis (T37).")
-    frozen = RUNS_DIR / "cvae" / "frozen" / "seed-0"
-    parser.add_argument("--cvae", type=Path, default=frozen if frozen.exists() else RUNS_DIR / "cvae" / "default")
+    frozen = saved_run("cvae", "frozen", "seed-0")
+    parser.add_argument("--cvae", type=Path, default=frozen if (frozen / "model.pt").exists()
+                        else saved_run("cvae", "default"))
     parser.add_argument("--rooms", type=int, default=100)
     parser.add_argument("--samples", type=int, default=64)
     parser.add_argument("--data", type=Path, default=None, help="default: data/<version from configs/default.yaml>")

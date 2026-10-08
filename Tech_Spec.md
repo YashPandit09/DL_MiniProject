@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.5 (decisions taken while building T01 to T30, up to Gate 2, and the frozen configuration; see change log in Section 12) |
+| Version | 1.6 (the project as built: decisions taken through Week 3; see change log in Section 12) |
 | Companion docs | PRD.md, Architecture.md, Development_Plan.md |
 | Scope | Living room (P0). Bedroom (P2). Same code, different config. |
 
@@ -357,6 +357,8 @@ L_c(z) = lambda_ov  * sum_{i<j} pen_ij^2              (penetration depth, Sectio
 - **The freeze is chosen on validation rooms, with M2.** The screening's M1 check sampled test rooms, so it only shortlists. Three seeds of each shortlisted setting are compared with M2, the deployed method, on 200 Set A validation rooms, under a rule fixed in advance (`python run.py gate2`, `reports/gate2.md`). M1 proved a poor guide: Tanh nearly doubles M1's raw valid rate but lowers M2's.
 - **E1 also reports the quality of the top 3 the pipeline shows.** For each room, the valid layouts are ranked three ways (by the evaluator, by the exact rule score, and at random), and the diverse top 3 is scored under each. This measures what the evaluator adds as a ranker (Section 4.2, purpose 3).
 - **E10 also runs G0 on every set.** It shows how hard each set's rooms are by themselves. The larger held-out rooms turned out easier, not harder.
+- **Timings come from an interleaved pass (v1.6).** The laptop's speed changes with its power and thermal state, so methods timed one after another do not compare. For E1, E8 and E12 every method samples each room in turn, and E10 reports no timings.
+- **E12 pins come from generator layouts (v1.6).** The pinned item stands where it stands in one generator reference layout of the same room, with that facing, so a valid completion is known to exist. Results are split by the pinned item, 60 requests each.
 
 ---
 
@@ -592,3 +594,16 @@ Sidebar inputs: room type, `W`, `D`, door wall and offset, furniture selection a
   - MAE is frozen (`configs/frozen.yaml`). Tanh, which nearly doubles M1's validity, lowers M2's.
 - Decisions T1 to T8 closed (11). T8 keeps the circulation term as specified.
 - The PRD's raw-valid target ("the CVAE beats B1 and B2") is met by M2, not by M1: in the first pass of E1, M1 reaches 11% and M2 64%, against B2's 58%. Reported as measured.
+
+**v1.6 (Week 3: final runs, pinned furniture, the app, regeneration)**
+- Headline runs (6, 7): M1 and M2 are the mean and standard deviation over three seeds of the frozen configuration. Every seed samples the same rooms with the same draws, so the spread is the training's. B1, B2 and G0 do not depend on the CVAE and run once. E8's headline run uses the 200 diversity-reference rooms.
+- Timing (7): cost per valid layout and seconds per room come from an interleaved timing pass on 100 rooms, in which every method, seed and step count samples each room in turn. Reason: the same M2 run was 1.6 times faster on one evening than on the afternoon before, and inside one E8 run the machine slowed down by half. Each command also times a fixed workload before and after. E10 has no timing columns.
+- Pinned furniture (5.1, E12):
+  - A pin is a centre in meters with an optional facing. It is refused when the item is not requested, or when on its spot it would stick out of the room or stand in the door's clearance zone.
+  - M2 pulls the item to its pin while optimizing (`lambda_pin`) with the facing fixed, then snaps it. M1 snaps its sample. G0-pin moves the item of a generator layout onto its spot. B1 and B2 place the pinned item first, and B2 redraws the others against it.
+  - Reported per pinned item: the raw valid rate after the snap, the share of requests with a valid layout, quality, the distance from the pin before the snap, and cost.
+- Failure analysis: a valid layout scoring below 0.5 counts as poor; a room whose valid layouts are closer than 0.5 m on average counts as collapsed; a sample's cause is the first hard check it breaks, and the share breaking each check at all is reported too.
+- Screening (6): the screening tables were rebuilt with the fields added after their runs (the diversity of M1's samples, the training loss in inference mode). A run's M1 check is repeated on the device it was trained on, because the CPU and the GPU draw different numbers from one seed.
+- Reproducibility (9.2): `python run.py all` runs every step in order and `python run.py check-regeneration` compares tables (outside their timing columns), model hashes, the dataset hash and the frozen configuration with the saved ones. With `SPACEGEN_OUTPUT` set, a regeneration writes to another folder and starts from nothing. The final models are committed in `checkpoints/`, and the app falls back to them.
+- App (9.5): the pin is placed by two sliders across and up the room; the app opens without trained models and names the command that creates each; `spacegen/app_logic.py` holds what it computes.
+- Not built: the feature-MLP comparison (E9b), the surrogate M3 (E8b), the real-room test (E11, which needs measured rooms), the bedroom and the 3D view.

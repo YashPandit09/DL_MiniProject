@@ -321,7 +321,7 @@ def main(argv: list[str] | None = None) -> int:
     from spacegen.catalog import load_room_catalog
     from spacegen.latent_opt import load_latent_opt_config
     from spacegen.layout import layout_to_dict
-    from spacegen.paths import REPORTS_DIR, RUNS_DIR
+    from spacegen.paths import REPORTS_DIR, saved_run
     from spacegen.rules import load_rules
     from spacegen.viz import SURFACE, plot_layout
 
@@ -333,9 +333,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--items", required=True,
                         help="comma-separated slots, each optionally name:variant, e.g. sofa:sofa_2seater,tv_unit")
     parser.add_argument("--budget", type=float, default=None, help="INR")
-    parser.add_argument("--cvae", type=Path, default=RUNS_DIR / "cvae" / "default")
-    parser.add_argument("--evaluator", type=Path, default=RUNS_DIR / "evaluator" / "e9a",
+    frozen = saved_run("cvae", "frozen", "seed-0")
+    parser.add_argument("--cvae", type=Path, default=frozen if (frozen / "model.pt").exists()
+                        else saved_run("cvae", "default"), help="default: the frozen seed 0, else runs/cvae/default")
+    parser.add_argument("--evaluator", type=Path, default=saved_run("evaluator", "e9a"),
                         help="trained evaluator run; rank by the rule score if it does not exist")
+    parser.add_argument("--pin", action="append", default=[], metavar="ITEM:X,Y[,FACING]",
+                        help="keep an item at (x, y) meters, optionally facing N, E, S or W, e.g. sofa:2.5,3.4,S")
     parser.add_argument("--no-latent-opt", action="store_true", help="M1 instead of M2")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", type=Path, default=REPORTS_DIR / "demo")
@@ -343,7 +347,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     items = dict((entry.split(":") + [None])[:2] for entry in args.items.split(","))
-    request = Request(args.width, args.depth, args.door, args.offset, items, args.budget)
+    pins = {}
+    for entry in args.pin:
+        name, _, where = entry.partition(":")
+        x, y, *facing = where.split(",")
+        pins[name] = Pin(float(x), float(y), "NESW".index(facing[0].upper()) if facing else None)
+    request = Request(args.width, args.depth, args.door, args.offset, items, args.budget, pins)
     catalog, rules = load_room_catalog("living_room"), load_rules()
     cvae = load_cvae_run(args.cvae, args.device)
     evaluator, raster = load_evaluator_run(args.evaluator, args.device) if args.evaluator.exists() else (None, None)

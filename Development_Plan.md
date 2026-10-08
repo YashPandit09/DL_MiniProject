@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.5 (Week 2 built; Gate 2 review in `reports/gate2.md`; change notes in Section 12) |
+| Version | 1.6 (Week 3 built; what is left for the team is listed in the change notes, Section 12) |
 | Team | [Member A] (ML and geometry lead), [Member B] (data, rules and app lead) |
 | Duration | 21 days. "Day 1" is the day you start. |
 | Companion docs | PRD.md, Tech_Spec.md, Architecture.md |
@@ -219,7 +219,7 @@ T50 and T40 have no fixed day: do them only in gaps and only if Gate 2 was comfo
 - [x] Pipeline returns 3 layouts end to end
 - [x] E2 to E7 have screening results saved; the deployed activation is chosen from E3a (BatchNorm on); the best configuration is written to `configs/frozen.yaml`
 - [x] First passes of E1 and E10 run without errors
-- [ ] Final 3-seed runs on the frozen configuration launched
+- [x] Final 3-seed runs on the frozen configuration launched
 - [ ] Actual hours logged for Week 2 tasks; if more than 15% over planned, apply the reduction ladder before starting any P1 or P2 task
 - [ ] Go or no-go recorded for: pinned furniture (T38), real rooms (T39), surrogate (T50), 3D (T40), bedroom (T32)
 
@@ -337,6 +337,13 @@ Applying the whole ladder closes the gap exactly and leaves **no slack**, so tre
 ---
 
 ## 12. Change notes
+
+**v1.6 (Week 3 built)**
+- Built: T33b (final runs), T34 and T36 (app), T35 (figures), T37 (failure analysis), T38 (pinned furniture and E12, the one extra taken), T41 (math appendix), T42a, T42b and T43 (report, `reports/report.md`), T44 and T46 (regeneration tooling and checks, see the report's Section 10.3 for what was verified), and the documents for T45 (`reports/viva_prep.md`) and T47 (`reports/demo_script.md`).
+- **Left for the team, because only people can do them:** the Week 2 hours and the go or no-go record (Gate 2 boxes 8 and 9), cross-teaching sessions #2 and #3, learning the viva answers (T45), rehearsing the demo and the mock viva twice (T47), screenshots of the app window for the backup folder, and the submission itself (T48).
+- Not built: T39 (real rooms: it needs 15 to 20 rooms measured by the team), T50 (surrogate), T40 (3D view), T32 (bedroom), T24 and T31 (feature MLP).
+- `run.py` gained the tasks `e8`, `e12`, `failures`, `figures`, `all`, `check-regeneration`, `demo-assets` and `app`.
+- Timings are measured with the methods taking turns (Tech Spec v1.6): the laptop's speed changes with its power and thermal state. Long runs need mains power.
 
 **v1.5 (Week 2 built, Gate 2 review)**
 - Week 2 ran in the order T19 and T20, T21 and T22, T23 and T25, T26, then T27, T27b and T29 together, T28 and T30, T33. The P1 tasks T24 and T31 and the P2 task T32 were not started.

@@ -92,6 +92,14 @@ TASKS: dict[str, tuple[str, list[list[str]]]] = {
         "compare regenerated tables, models and the dataset with the saved ones (--record saves the hashes)",
         [[PY, "-m", "experiments.regenerate", "check"]],
     ),
+    "export-checkpoints": (
+        "copy the final models (frozen CVAE seeds, evaluator) from runs/ to checkpoints/, which is committed",
+        [[PY, "-m", "experiments.regenerate", "export"]],
+    ),
+    "demo-assets": (
+        "the demo's backup pictures and the report's demo figures, in reports/demo/",
+        [[PY, "-m", "experiments.demo_assets"]],
+    ),
     "app": (
         "the Streamlit demo: top 3 layouts, the five methods compared, the saved figures",
         [[PY, "-m", "streamlit", "run", "app/streamlit_app.py"]],

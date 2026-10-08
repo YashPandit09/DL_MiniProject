@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Version | 1.3 (revised after three technical reviews) |
+| Version | 1.5 (the system as built; Sections 3, 4.1, 7 and 8 updated after Gate 2, see Section 13) |
 | Companion docs | PRD.md, Tech_Spec.md, Development_Plan.md |
 | Diagram format | Mermaid (renders in GitHub, VS Code preview, and most Markdown viewers). Plain-text fallbacks are included for the key diagrams. |
 
@@ -13,7 +13,7 @@
 SpaceGen AI is a **local, modular Python application** with three layers:
 
 1. **Data layer:** catalog, rules, procedural generator, rasterizer, datasets.
-2. **Model layer:** CVAE generator, CNN evaluator, feature-MLP baseline, baselines B1 and B2, and the procedural reference G0 (with a pinned variant).
+2. **Model layer:** CVAE generator, CNN evaluator, baselines B1 and B2, and the procedural reference G0 (with a pinned variant). The feature-MLP baseline (P1) was not built.
 3. **Inference and UI layer:** latent optimization, checker, ranking, Streamlit app.
 
 The design principle is **learn to propose, then verify**. Neural networks propose and score layouts. A deterministic rule engine verifies them. Gradient-based latent optimization connects the two by using the differentiable part of the rules to steer the generator.
@@ -52,65 +52,83 @@ flowchart TB
     subgraph DataLayer[Data layer]
         CATALOG[catalog.py]
         GEOM[geometry.py]
-        RULES[rules.py<br/>hard checks + quality score]
-        GEN[generator.py<br/>Set A / Set B]
+        RULES[rules.py, quality.py<br/>hard checks, quality score]
+        GEN[generator.py, perturb.py<br/>Set A, Set B]
+        SPLIT[splits.py, build_dataset.py]
         RAST[raster.py]
-        DS[dataset.py]
+        DS[dataset.py, layout.py]
     end
     subgraph ModelLayer[Model layer]
-        CVAE[models/cvae.py]
-        EVAL[models/evaluator.py]
-        MLPB[models/mlp_baseline.py]
-        BASE[baselines.py<br/>B1 random, B2 statistical, G0 and G0-pin]
+        CVAE[models/cvae.py<br/>train_cvae.py]
+        EVAL[models/evaluator.py<br/>train_evaluator.py]
+        BASE[baselines.py<br/>B1, B2, G0]
     end
     subgraph InferenceLayer[Inference and UI layer]
         LOPT[latent_opt.py]
+        PINS[pins.py]
         PIPE[pipeline.py]
-        MET[metrics.py]
-        VIZ[viz.py]
+        LOGIC[app_logic.py]
         APP[app/streamlit_app.py]
+    end
+    subgraph Experiments[Experiments]
+        HARN[metrics.py, evaluate.py]
+        EXP[experiments/<br/>screening, gate2, headline, pinned,<br/>failure_cases, figures, regenerate]
     end
     CATALOG --> GEN
     GEOM --> RULES
     GEOM --> RAST
     GEOM --> LOPT
     RULES --> GEN
-    GEN --> DS
-    RAST --> DS
+    GEN --> SPLIT
+    SPLIT --> DS
     DS --> CVAE
+    RAST --> EVAL
     DS --> EVAL
-    DS --> MLPB
     DS --> BASE
     GEN --> BASE
     CVAE --> LOPT
     LOPT --> PIPE
+    PINS --> PIPE
     RULES --> PIPE
     EVAL --> PIPE
-    BASE --> PIPE
-    PIPE --> APP
-    MET --> APP
-    VIZ --> APP
+    PIPE --> LOGIC
+    BASE --> LOGIC
+    LOGIC --> APP
+    PIPE --> HARN
+    BASE --> HARN
+    HARN --> EXP
 ```
 
 ### 3.1 Module responsibilities
 
+All modules are in `spacegen/` unless a folder is given.
+
 | Module | Responsibility | Depends on | Owner (suggested) |
 |---|---|---|---|
-| `geometry.py` | Rotation handling, effective footprints, exact overlap area for the checker, penetration depth for the loss (NumPy and PyTorch versions), containment | none | A |
-| `catalog.py` | Load items, variants, prices; selection helpers | config | B |
-| `rules.py` | Hard checks H1 to H4, reachability (distance transform and `ndimage.label`, all equivalent faces for symmetric items), quality score `S` | geometry, catalog | B |
-| `generator.py` | Procedural layouts (styles, jitter), perturbations, labels | rules, catalog | B |
-| `raster.py` | Layout to 4-channel 128x128 fractional-coverage raster on a fixed 8 m canvas (a differentiable version is optional, for M3) | geometry | A |
-| `dataset.py` | Vector encoding of `x` and `c`, normalization, splits, PyTorch datasets | generator, raster | A |
-| `models/cvae.py` | Encoder, decoder, loss terms (masked recon, KL) | dataset | A |
-| `models/evaluator.py` | CNN with valid and score heads | raster | B |
-| `models/mlp_baseline.py` | Feature-based MLP for comparison | rules | B |
-| `baselines.py` | B1 uniform random, B2 statistical sampler, G0 wrapper and G0-pin (generator, move the pinned item, filter) | dataset, generator | A |
-| `latent_opt.py` | Differentiable constraint loss and Adam on `z` | cvae, geometry | A |
-| `pipeline.py` | Feasibility, selection, sampling, refinement, checks, ranking, top-3 | all above | shared |
-| `metrics.py` | RVR, overlap, diversity, F1, Spearman, active units | rules | shared |
-| `viz.py` | 2D layout plots (3D optional) | geometry | B |
-| `app/streamlit_app.py` | UI, method comparison, export | pipeline, viz | B |
+| `geometry.py` | Rotation handling, effective footprints, exact overlap area for the checker, penetration depth for the losses, one implementation for NumPy and PyTorch | none | A |
+| `catalog.py` | Items, variants, sizes, prices and flags from `configs/catalog.yaml`, with checks | config | B |
+| `layout.py` | The `Layout` object, canonical form, the layout JSON | catalog | A |
+| `rules.py` | Door geometry, hard checks H1 to H4, reachability on a grid, the footprint ratio | geometry, catalog | B |
+| `quality.py` | Quality score `S` and its four terms | rules | B |
+| `generator.py` | The procedural generator (three styles), Set A, the G0 sampler's core | rules, catalog | B |
+| `perturb.py` | Set B: perturbations including near-misses, labelled by the checker | generator | B |
+| `splits.py` | 70/15/15 splits, held-out regions and sets, the diversity reference | generator | A |
+| `build_dataset.py` | Dataset v1 with metadata and a content hash, `f_max` calibration, dataset figures | generator, perturb, splits | B |
+| `raster.py` | Layout to a 4-channel 128 x 128 fractional-coverage image on a fixed 8 m canvas, on the GPU | geometry | A |
+| `dataset.py` | Vectors `x` and `c`, batches of layouts, tensors on the GPU | layout | A |
+| `models/cvae.py` | Encoder, decoder, masked reconstruction loss, KL, active units | dataset | A |
+| `train_cvae.py` | KL annealing, early stopping, per-epoch logs, config overrides | cvae | A |
+| `models/evaluator.py`, `train_evaluator.py`, `evaluator_report.py` | The CNN with its validity and score outputs, its training, the E9a report | raster | B |
+| `baselines.py` | B1 uniform random, B2 statistical sampler, G0 wrapper | dataset, generator | A |
+| `latent_opt.py` | The constraint loss and Adam on `z`, pins, stopping | cvae, geometry | A |
+| `pins.py` | Pinned furniture: the pin, the snap, G0-pin, why a pin is refused | layout, rules | A |
+| `pipeline.py` | Request checks, variant choice, the M1 and M2 samplers, checks, ranking, the diverse top 3 | all above | shared |
+| `metrics.py`, `evaluate.py` | Raw valid rate, overlap, reachability, quality, diversity; the same rooms and samples for every method | rules | shared |
+| `viz.py` | Floor plans and the data figures | geometry | B |
+| `app_logic.py`, `app/streamlit_app.py` | What the app computes, and its user interface | pipeline, baselines | B |
+| `provenance.py`, `seed.py`, `paths.py`, `config.py`, `env_check.py` | Run records (seed, configs, git commit, dataset hash), deterministic seeding, output folders, the machine check | none | shared |
+| `experiments/screening.py`, `gate2.py`, `headline.py`, `pinned.py`, `failure_cases.py` | E2 to E8; the freeze; E1, E8 and E10; E12; the failure analysis | all above | shared |
+| `experiments/figures.py`, `make_figures.py`, `regenerate.py`, `demo_assets.py` | Every figure from saved tables; the full regeneration and its check; the demo's pictures | all above | shared |
 
 ---
 
@@ -128,14 +146,12 @@ flowchart LR
     ENC --> TRV[Train CVAE]
     SETB --> RAS[Rasterize on the fly]
     RAS --> TRE[Train CNN evaluator]
-    SETB --> FEAT[Hand-crafted features]
-    FEAT --> TRM[Train feature MLP]
-    TRV --> CK1[(cvae.pt)]
-    TRE --> CK2[(evaluator.pt)]
-    TRM --> CK3[(mlp.pt)]
-    SETA --> STAT[Fit B2 statistics]
-    STAT --> CK4[(b2_stats.pkl)]
+    TRV --> CK1[(runs/cvae/RUN/model.pt)]
+    TRE --> CK2[(runs/evaluator/RUN/model.pt)]
+    SETA --> STAT[Fit B2 on the training split<br/>each time it is used]
 ```
+
+*As built:* every run folder also holds `run.json` (seed, configs, git commit, dataset hash), `log.csv` and `summary.json`. B2 is fitted in under a second and is not stored. The feature MLP was not built.
 
 ### 4.2 Inference-time flow
 
@@ -263,22 +279,25 @@ sequenceDiagram
     {"slot": 0, "id": "sofa_3seater", "w": 2.10, "d": 0.90, "h": 0.85,
      "x": 2.60, "y": 0.75, "rotation": 0, "price": 28000}
   ],
-  "metrics": {"valid": true, "checks": {"H1": true, "H2": true, "H3": true, "H4": true},
-              "rule_score": 0.82, "eval_score": 0.79, "cost": 43000, "space_use": 0.24},
-  "meta": {"method": "cvae_lo", "seed": 0, "model_version": "cvae_v1", "dataset_hash": "..."}
+  "metrics": {"valid": true, "quality": 0.82, "cost": 43000, "floor_use": 0.24,
+              "alignment": 1.0, "relations": 0.9, "circulation": 0.6, "space": 1.0},
+  "meta": {"rank": 1, "method": "M2 (CVAE + latent optimization)", "seed": 0, "cvae": "runs/cvae/frozen/seed-0"}
 }
 ```
-(`rotation` uses the class index 0 to 3 defined in the Tech Spec.)
+(`rotation` uses the class index 0 to 3 defined in the Tech Spec. `room`, `door` and `items` are fixed (`spacegen/layout.py`); `metrics` and `meta` are free-form and shown here as the app writes them.)
 
 ### 7.2 Dataset file layout
 ```
 data/v1/
-  set_a_train.npz  set_a_val.npz  set_a_test.npz
-  set_b_train.npz  set_b_val.npz  set_b_test.npz
-  heldout_interp.npz  heldout_unseen_combo.npz  heldout_out_of_range.npz  g0_reference.npz
-  metadata.json      # generator config, seed, counts, hash
+  set_a.npz  set_a.csv  set_a_attempts.csv     # good layouts; per-layout style and quality; the generator's attempt log
+  set_b.npz  set_b.csv                         # labelled layouts; perturbation type, valid, quality
+  splits.npz                                   # row indices: set_a_train / validation / test, set_b_...
+  held_out_interpolation.npz  held_out_unseen_combination.npz  held_out_out_of_range.npz   (+ .csv)
+  diversity_reference.npz  diversity_reference.csv   # 20 generator layouts for each of 200 test rooms
+  calibration.csv                              # the rooms of the f_max calibration
+  metadata.json                                # seed, configs, git commit, counts, f_max, file hashes, dataset hash
 ```
-Each `.npz` holds arrays for `c`, `x`, presence mask, sizes, room and door parameters, and (Set B) `valid` and `quality` labels.
+Each `.npz` holds layouts in meters, one row per layout in canonical form: room, door, presence mask, variants, centres and rotations. The vectors `c` and `x` are computed from them when needed (`spacegen/dataset.py`).
 
 ---
 
@@ -287,11 +306,12 @@ Each `.npz` holds arrays for `c`, `x`, presence mask, sizes, room and door param
 | Concern | Approach |
 |---|---|
 | **Configuration** | YAML files; one master seed; per-experiment overrides; config saved next to every checkpoint |
-| **Reproducibility** | Seeds for Python, NumPy, PyTorch; dataset hash in checkpoint metadata; one `make experiments` target rebuilds all tables and figures |
+| **Reproducibility** | Seeds for Python, NumPy, PyTorch, with PyTorch in deterministic mode (bit-identical reruns on one machine); the dataset hash in every run record; `python run.py all` regenerates everything and `python run.py check-regeneration` compares it with the saved results |
 | **Device handling** | `device = cuda if available else cpu`; batch sizes small so CPU works |
 | **Logging** | Console plus CSV logs per run (loss curves, per-layer gradient norms, dead-unit percentage) |
 | **Error handling** | Input validation with clear user messages; infeasible-request message; fallback when fewer than 3 valid layouts exist (return what exists, note it) |
-| **Testing** | pytest suite listed in the Tech Spec; smoke test for the full pipeline |
+| **Testing** | pytest suite (`python run.py test`), including a headless run of the app and of every experiment runner on a tiny dataset |
+| **Timing** | The laptop's speed changes with its power and thermal state, so methods are timed in turn on the same rooms (`experiments/headline.py`) |
 | **Out-of-distribution guard** | Warn if room size is outside the training ranges |
 | **Security and privacy** | Local only; no personal data; inputs are numeric and validated |
 | **Performance** | Batch all 64 candidates as tensors; vectorized pairwise overlap; reachability on small grids; training data kept on the GPU as tensors (no DataLoader); rasters built on the fly on the GPU as outer products of 1-D overlaps (precomputing Set B would need about 16 GB) |
@@ -358,3 +378,14 @@ Client -> FastAPI (input validation, versioned models) -> Inference pipeline
 6. During latent optimization, the decoder is frozen and in `eval()` mode.
 7. Training targets are in **canonical form** (symmetric items and interchangeable slots), and metrics compare layouts after canonicalization. The checker and raster treat all equivalent faces of symmetric items alike.
 8. Early stopping and checkpoint selection use the validation loss at `beta_target` and start only after KL annealing ends.
+
+---
+
+## 13. Change notes
+
+**v1.5 (the system as built, after Gate 2)**
+- Sections 3 and 3.1 list the modules that exist. The data layer gained `layout.py`, `quality.py`, `perturb.py`, `splits.py` and `build_dataset.py`; training, the evaluator's report, pins, the app's logic, run records and the experiment runners have their own modules.
+- Not built: the feature-MLP baseline (P1), the differentiable raster and the surrogate M3 (P1), the 3D view (P2) and the bedroom (P2). Section 11 still describes where they would plug in.
+- Section 4.1: B2 is fitted when used, not stored. Section 7 shows the dataset files and the layout JSON as written.
+- Section 8: regeneration and its check, and why timings are measured with the methods taking turns.
+- Invariant 4 holds as stated: the frozen configuration was chosen on validation rooms (`reports/gate2.md`).

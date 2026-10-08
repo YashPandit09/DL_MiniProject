@@ -78,7 +78,7 @@ def test_check_counts_differences_in_tables_models_and_the_dataset(tmp_path):
     assert model_hashes(runs) == recorded["models"]
     log = []
     options = dict(tables_dir=tables, hashes=hashes, runs_dir=runs, data_dir=data, frozen=tmp_path / "none.yaml",
-                   show=saved.get, log=log.append)
+                   show=saved.get, log=log.append, copies=tmp_path / "no_copies")
     assert check(**options) == 1  # only changed.csv
     assert log[:3] == ["DIFF   changed.csv: columns differ: rvr", "new    fresh.csv (not in the last commit)",
                        "equal  same.csv"]
@@ -95,3 +95,49 @@ def test_check_counts_differences_in_tables_models_and_the_dataset(tmp_path):
     assert check(**options) == 0  # what is not there is reported, not counted
     assert "1 not regenerated" in log[2] and "not built" in log[3]
     assert log[-1] == "everything compared is reproduced exactly"
+
+
+def test_saved_run_prefers_the_run_folder_then_the_committed_copy(tmp_path, monkeypatch):
+    import spacegen.paths as paths
+
+    monkeypatch.setattr(paths, "RUNS_DIR", tmp_path / "runs")
+    monkeypatch.setattr(paths, "CHECKPOINTS_DIR", tmp_path / "checkpoints")
+    run, copy = tmp_path / "runs" / "cvae" / "x", tmp_path / "checkpoints" / "cvae" / "x"
+    assert paths.saved_run("cvae", "x") == run  # neither exists: the caller reports the missing run
+    copy.mkdir(parents=True)
+    (copy / "model.pt").write_bytes(b"copy")
+    assert paths.saved_run("cvae", "x") == copy  # a fresh clone has only the copy
+    run.mkdir(parents=True)
+    (run / "model.pt").write_bytes(b"run")
+    assert paths.saved_run("cvae", "x") == run
+
+
+def test_committed_checkpoints_match_the_recorded_hashes():
+    import hashlib
+
+    from experiments.regenerate import EXPORTED, HASHES
+    from spacegen.paths import CHECKPOINTS_DIR
+
+    saved = json.loads(HASHES.read_text(encoding="utf-8"))["models"]
+    for run in EXPORTED:
+        model = CHECKPOINTS_DIR / run / "model.pt"
+        assert model.exists(), f"{run} is not in checkpoints/"
+        assert hashlib.sha256(model.read_bytes()).hexdigest() == saved[run]
+        record = json.loads((CHECKPOINTS_DIR / run / "run.json").read_text(encoding="utf-8"))
+        assert record["dataset"].startswith("data/")  # no machine path in the committed record
+
+
+def test_committed_models_give_three_valid_layouts(catalog, rules):
+    """The smoke test of a fresh clone (T44): the real frozen CVAE and evaluator, straight from checkpoints/."""
+    import numpy as np
+
+    from spacegen.paths import CHECKPOINTS_DIR
+    from spacegen.pipeline import Request, generate, load_cvae_run, load_evaluator_run
+    from spacegen.rules import check_layout
+
+    cvae = load_cvae_run(CHECKPOINTS_DIR / "cvae" / "frozen" / "seed-0")
+    evaluator, raster = load_evaluator_run(CHECKPOINTS_DIR / "evaluator" / "e9a")
+    request = Request(5.0, 4.0, "W", 0.5, {"sofa": None, "tv_unit": None, "coffee_table": None})
+    result = generate(request, catalog, rules, cvae, np.random.default_rng(0), evaluator, raster)
+    assert result.candidates == 64 and result.valid >= 20  # 70% of raw samples are valid on average
+    assert len(result.top) == 3 and all(check_layout(c.layout, catalog, rules).valid for c in result.top)
