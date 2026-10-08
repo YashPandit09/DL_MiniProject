@@ -225,10 +225,10 @@ T50 and T40 have no fixed day: do them only in gaps and only if Gate 2 was comfo
 
 **Go/no-go rule for extras:** add an extra only if all Gate 2 boxes are ticked *and* the remaining days cover the report and viva preparation with at least one spare day.
 
-**Final (Day 20)**
-- [ ] Fresh-clone reproduction works
-- [ ] All figures regenerate from `make figures`
-- [ ] Report complete with appendix
+**Final (Day 20)** (evidence in `reports/regeneration.md`)
+- [x] Fresh-clone reproduction works
+- [x] All figures regenerate from `make figures`
+- [x] Report complete with appendix
 - [ ] Demo and mock viva rehearsed twice
 - [ ] Git tag `final` created
 

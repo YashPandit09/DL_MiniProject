@@ -4,10 +4,47 @@ Constraint-aware furniture layout generation with deep learning (Deep Learning m
 A conditional VAE proposes layouts for a room, latent optimization repairs constraint
 violations, a rule checker verifies every layout, and a CNN evaluator ranks the survivors.
 
+**Start here:** the report, [reports/report.md](reports/report.md). To see it work:
+`pip install -r requirements.txt`, then `python run.py app`. The final models are committed in
+`checkpoints/`, so the app runs from a fresh clone without training.
+
+## Results
+
+500 test rooms, 64 raw samples per room, no filtering. M1 and M2 are the mean ± standard deviation
+over three training seeds of the frozen configuration.
+
+| Method | Raw valid | Quality of valid layouts | Quality of the top 3 shown | Cost per valid layout |
+|---|---|---|---|---|
+| B1 uniform random | 10.1% | 0.29 | 0.30 | 18.4 ms |
+| B2 statistical sampler | 57.8% | 0.55 | 0.62 | 4.0 ms |
+| G0 rule-based generator (reference) | 74.7% per attempt | 0.88 | 0.89 | 2.4 ms |
+| M1 CVAE | 17.3 ± 1.9% | 0.66 | 0.78 | 10.5 ms |
+| **M2 CVAE + latent optimization** | **69.8 ± 0.9%** | 0.66 | **0.85** | 21.1 ms |
+
+- **Latent optimization is what makes the learned pipeline work:** it takes the valid share from 17% to 70%.
+- **The CNN's ranking lifts what the user sees** from 0.67 (random order) to 0.85.
+- **The rule-based generator is still better:** about nine times cheaper per valid layout, with
+  higher-scoring layouts, and it stays ahead when the user pins a piece of furniture (47% valid
+  against 39%). The report says so plainly; the project's value is the controlled study of the
+  deep learning parts.
+- **Rooms beyond the training distribution:** M2's valid share rises with room size (70% in distribution; 74%, 84% and 87% on the three
+  held-out sets), 90 to 93% of the generator's rate on each. Its top-3 quality falls from 0.85 to 0.77
+  only in rooms larger than any in training.
+- **What the experiments explain:** MAE beats MSE and Huber because of the loss's scale, not
+  outliers; BatchNorm hides vanishing gradients and dying ReLU; the raw model's validity is a
+  poor guide to the pipeline's (Tanh doubles one and lowers the other); the CNN judges gross
+  violations almost perfectly but boundary cases only 81% of the time; reachability, which is not
+  differentiable, causes more than half of the pipeline's remaining failures.
+
 ## Documents
 
 | File | Contents |
 |---|---|
+| [reports/report.md](reports/report.md) | **The report**: problem, data, methods, twelve experiments, demo, failure cases, limitations, references |
+| [reports/appendix_math.md](reports/appendix_math.md) | Every loss, gradient and metric derived, with the test or experiment that checks it |
+| [reports/failure_cases.md](reports/failure_cases.md) | What goes wrong, how often, and a gallery of twelve cases |
+| [reports/viva_prep.md](reports/viva_prep.md) | Prepared answers to 25 viva questions, and the one-page sheets |
+| [reports/demo_script.md](reports/demo_script.md) | The 5-minute demo, minute by minute, with backups |
 | [PRD.md](PRD.md) | Goals, scope, user stories, success metrics, risks |
 | [Tech_Spec.md](Tech_Spec.md) | Data format, rules, models, experiments, math appendix |
 | [Architecture.md](Architecture.md) | Modules, data flow, design decisions |
@@ -51,14 +88,19 @@ does the same thing.
 | `python run.py train-evaluator` | Train the CNN evaluator on Set B on the GPU (one epoch by default; `--epochs N --name RUN`); writes `runs/evaluator/RUN/` with `run.json` (seed, configs, git commit, dataset hash), `log.csv` and `model.pt` |
 | `python run.py train-cvae` | Train the CVAE on Set A (about 1.5 minutes on the GPU): KL annealing, early stopping, per-epoch log with gradient norms, dead and active units, and a first M1 check; `--name RUN --set cvae.<field>=<value>` for the experiments, `--config configs/frozen.yaml --seed K` for the final runs |
 | `python run.py evaluator-report` | E9a metrics of the evaluator in `runs/evaluator/e9a/` on the Set B test split: `reports/tables/evaluator.csv`, `evaluator_per_type.csv`, `reports/figures/evaluator_confusion.png` |
-| `python run.py generate --width 5 --depth 4 --door W --items sofa,tv_unit,coffee_table` | The pipeline for one room (M2 by default; `--budget`, `--no-latent-opt`, `name:variant` items): the top 3 as JSON and PNG in `reports/demo/` |
+| `python run.py generate --width 5 --depth 4 --door W --items sofa,tv_unit,coffee_table` | The pipeline for one room (M2 by default; `--budget`, `--no-latent-opt`, `name:variant` items, `--pin sofa:2.5,3.4,S` to keep an item where it is): the top 3 as JSON and PNG in `reports/demo/` |
 | `python run.py screen all` | The CVAE screening experiments E2 to E8 (one seed per setting, 48 runs, about 75 minutes on the GPU; finished runs are reused): `reports/tables/<experiment>.csv` and `reports/figures/<experiment>_*.png` |
 | `python run.py e1` | E1, first pass: B1, B2, G0, M1 and M2 on the same 500 test rooms x 64 samples (about 15 minutes, samplers on the CPU), plus the quality of the top 3 the pipeline would show; per-room rows are cached in `runs/headline/<cvae run>/` (`--cvae RUN`, `--fresh`): `reports/tables/e1.csv`, `reports/figures/e1_*.png` |
 | `python run.py e10` | E10, first pass: M1, M2 and G0 on the E1 rooms and 500 rooms of each held-out set (about 30 minutes): `reports/tables/e10.csv`, `reports/figures/e10_generalization.png` |
 | `python run.py e1 --tag final --cvae runs/cvae/frozen/seed-0 runs/cvae/frozen/seed-1 runs/cvae/frozen/seed-2` (likewise `e8` and `e10`; `e10 --sets` splits the run) | The headline runs (T33b) on the three seeds of the frozen configuration: M1 and M2 as the mean and standard deviation over the seeds, B1, B2 and G0 once; `reports/tables/e1_final.csv`, `e8_final.csv`, `e10_final.csv` and their figures. About 2.5 hours in all; keep the laptop on mains power, because E1's costs are timings |
 | `python run.py gate2` | Gate 2 freeze: three seeds of the shortlisted CVAE settings (trains only missing runs), M1 and M2 scored on 200 Set A validation rooms, the rule from `reports/gate2.md` applied; writes `configs/frozen.yaml`, `reports/tables/gate2*.csv`, `reports/figures/gate2_candidates.png` (about an hour) |
+| `python run.py e12` | E12, pinned furniture (T38): 60 requests per item, each with one item pinned where a generator layout of the room has it; M2, M1, G0-pin, B1 and B2, timed in turn: `reports/tables/e12.csv`, `reports/figures/e12_pinned.png` (about 35 minutes) |
 | `python run.py failures` | Failure-case analysis (T37): B1, B2, M1 and M2 sample 100 test rooms; every sample is classified by the hard check it breaks, or as valid but poor; `reports/tables/failure_causes.csv`, `failure_cases.csv`, `reports/figures/failure_cases.png`, discussed in `reports/failure_cases.md` (about 3 minutes) |
 | `python run.py figures` | Redraw every figure from the saved tables and logs in seconds, without training or sampling (`--tables` first rebuilds the screening tables from the saved runs). The per-epoch logs of the screening runs are copied to `reports/logs/screen/`, so the training curves can be redrawn from a fresh clone |
+| `python run.py demo-assets` | The demo's backup pictures and the report's demo figures, made by the app's own code: `reports/demo/layouts.png`, `pinned.png`, `compare.png` |
+| `python run.py all` | Regenerate every result in order, about eight hours (`--list` prints the steps; `--from STEP --to STEP` runs a part). Set `SPACEGEN_OUTPUT` to an empty folder first, so it starts from nothing and leaves the saved results alone |
+| `python run.py check-regeneration` | Compare regenerated tables (outside their timing columns), model hashes, the dataset hash and the committed checkpoints with the saved ones (`--record` saves the hashes) |
+| `python run.py export-checkpoints` | Copy the final models from `runs/` to `checkpoints/` |
 | `python run.py app` | The Streamlit demo (T34, T36): the room, door, furniture, budget and options in the sidebar; the top 3 layouts with quality, cost, floor use, each hard check and JSON and PNG exports; the five methods compared on the same room; the saved figures. It opens without trained models and says what to run |
 | `python -m spacegen.viz layout.json layout.png` | Draw a layout JSON as a floor plan with its hard-check results |
 
@@ -74,6 +116,15 @@ does the same thing.
   from the seed and the configs in `configs/`.
   `data/v1/metadata.json` records the seed, the configs, the git commit and a SHA-256 hash of
   the data contents; a rebuild on the same machine gives the same hash.
+- The final models (the three frozen CVAE seeds and the evaluator, 4.7 MB) are committed in
+  `checkpoints/`, and `reports/model_hashes.json` holds the hash of every trained model.
+- `python run.py all` regenerates everything and `python run.py check-regeneration` compares the
+  result with what is saved. Checked on 9 October 2026: a fresh clone from GitHub passes
+  every test without `data/` or `runs/`, generates from the committed checkpoints, redraws the figures
+  byte for byte and rebuilds dataset v1 with the identical hash (`reports/report.md`, Section 10.3).
+- Timings (cost per valid layout, seconds per room) are measured with the methods taking turns
+  on the same rooms, because the laptop's speed changes with its power and thermal state. Keep
+  it on mains power for long runs.
 
 ## Status
 
@@ -132,14 +183,33 @@ does the same thing.
 - [x] T30 E10, first pass: M2's raw valid rate rises with room size (64% in distribution, 67% interpolation, 79%
   unseen combination, 81% out of range) as G0's does (75% to 96%), so the held-out rooms are easier, not harder;
   M2's quality holds (0.60 to 0.56; the top 3 from 0.78 to 0.74)
-- [ ] T33 Gate 2 review (`reports/gate2.md`): 6 of 9 boxes done. Configuration frozen (`configs/frozen.yaml`, MAE
+- [ ] T33 Gate 2 review (`reports/gate2.md`): 8 of 9 boxes done. Configuration frozen (`configs/frozen.yaml`, MAE
   position loss) after comparing three seeds of the screening's shortlist with M2 on 200 validation rooms: MAE gives
   72% raw valid against 67% and a top-3 quality of 0.85 against 0.79; Tanh nearly doubles M1's validity but lowers
-  M2's. Left: the final 3-seed runs (T33b), the Week 2 hours and the go or no-go for the extras. Tech Spec and
-  Development Plan v1.5
+  M2's. Left for the team: the Week 2 hours
+- [x] T33b Final runs on the three frozen seeds (bit-identical to the Gate 2 MAE runs): E1, E8 and E10 with M1 and
+  M2 as mean and standard deviation; timings from a pass in which the methods take turns. M2 69.8 ± 0.9% raw valid
+  against B2's 57.8%; G0 about nine times cheaper per valid layout
 - [x] T34, T36 Streamlit app (`python run.py app`, `app/streamlit_app.py`, logic in `spacegen/app_logic.py`): room, door,
   furniture, budget and an optional pinned item in the sidebar; the top 3 with quality, cost, floor use, each hard
   check and JSON and PNG exports; the five methods on the same room; the saved figures. `tests/test_app.py` runs
   the app headless, also without trained models
 - [x] T35 `python run.py figures` redraws every figure from the saved tables and logs in seconds; the screening
   runs' per-epoch logs are copied to `reports/logs/screen/`, so a fresh clone can redraw the training curves
+- [x] T37 Failure analysis (`python run.py failures`, `reports/failure_cases.md`): latent optimization removes 87% of
+  the out-of-room failures and 89% of the overlaps, but only 37% of the unreachable items, which it does not target;
+  18.5% of M2's samples fail on reachability alone
+- [x] T38 Pinned furniture (P1, the one extra taken): pins in the pipeline, the baselines and the app; E12 on 360
+  requests. The pin always holds and 99% of requests get a valid layout, but the generator with the item moved
+  (G0-pin) beats M2 on validity (47% against 39%), quality and cost: the expected case for the learned pipeline
+  is not supported
+- [x] T41 Math appendix (`reports/appendix_math.md`)
+- [x] T42a, T42b, T43 Report (`reports/report.md`): ten sections with the limitations, ethics and references
+- [x] T44, T46 Fresh-clone check and regeneration: a fresh clone from GitHub passes every test, generates from the committed
+  checkpoints, redraws every figure byte for byte and rebuilds dataset v1 with the identical hash; the frozen seeds
+  retrain bit-identically; `python run.py all` and `check-regeneration` do the full comparison (report, Section 10.3)
+- [ ] T45, T47 Viva answers and cheat sheets (`reports/viva_prep.md`) and the demo script (`reports/demo_script.md`)
+  are written; learning them, the rehearsals and the mock viva are for the team
+- [ ] T48 Submission: for the team. Still open besides: the hours logs and cross-teaching sessions, screenshots of
+  the app window for the backup folder, and T39 (real rooms), which needs rooms measured by the team
+- Not built: T24 and T31 (feature MLP), T50 (surrogate), T40 (3D view), T32 (bedroom)

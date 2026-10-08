@@ -83,6 +83,7 @@ SETS = ("in_distribution", "interpolation", "unseen_combination", "out_of_range"
 ROOM_SETS = (*SETS, "validation")  # (T33) Set A validation rooms, for choosing the frozen configuration
 METHODS = ("B1", "B2", "G0", "M1", "M2")
 MODEL_FREE = ("B1", "B2", "G0")  # do not depend on the CVAE: computed once for several runs
+SAME_IN_EVERY_RUN = ("rooms", "samples", "area_m2", "items")  # set by the protocol: no spread over the seeds
 E10_METHODS = ("M1", "M2", "G0")
 ORDERS = {"evaluator": "quality_top3", "rule": "quality_top3_rule", "random": "quality_top3_random"}
 
@@ -243,12 +244,13 @@ def combine(tables: list[pd.DataFrame], keys: list[str]) -> pd.DataFrame:
     B1, B2 and G0 come from the same cached rows in every run, so they count as one run without a spread."""
     stacked = pd.concat(tables, ignore_index=True)
     numeric = [c for c in stacked.columns if c not in keys and pd.api.types.is_numeric_dtype(stacked[c])]
-    groups = stacked.groupby(keys, sort=False)[numeric]
-    table = groups.mean().join(groups.std(ddof=1).add_suffix("_std")).reset_index()
+    groups = stacked.groupby(keys, sort=False)
+    measured = [c for c in numeric if c not in SAME_IN_EVERY_RUN]
+    table = groups[numeric].mean().join(groups[measured].std(ddof=1).add_suffix("_std")).reset_index()
     table.insert(len(keys), "seeds", len(tables))
     model_free = table["method"].isin(MODEL_FREE)
     table.loc[model_free, "seeds"] = 1
-    table.loc[model_free, [f"{c}_std" for c in numeric]] = np.nan
+    table.loc[model_free, [f"{c}_std" for c in measured]] = np.nan
     return table
 
 
