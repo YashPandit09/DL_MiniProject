@@ -57,6 +57,9 @@ does the same thing.
 | `python run.py e10` | E10, first pass: M1, M2 and G0 on the E1 rooms and 500 rooms of each held-out set (about 30 minutes): `reports/tables/e10.csv`, `reports/figures/e10_generalization.png` |
 | `python run.py e1 --tag final --cvae runs/cvae/frozen/seed-0 runs/cvae/frozen/seed-1 runs/cvae/frozen/seed-2` (likewise `e8` and `e10`; `e10 --sets` splits the run) | The headline runs (T33b) on the three seeds of the frozen configuration: M1 and M2 as the mean and standard deviation over the seeds, B1, B2 and G0 once; `reports/tables/e1_final.csv`, `e8_final.csv`, `e10_final.csv` and their figures. About 2.5 hours in all; keep the laptop on mains power, because E1's costs are timings |
 | `python run.py gate2` | Gate 2 freeze: three seeds of the shortlisted CVAE settings (trains only missing runs), M1 and M2 scored on 200 Set A validation rooms, the rule from `reports/gate2.md` applied; writes `configs/frozen.yaml`, `reports/tables/gate2*.csv`, `reports/figures/gate2_candidates.png` (about an hour) |
+| `python run.py failures` | Failure-case analysis (T37): B1, B2, M1 and M2 sample 100 test rooms; every sample is classified by the hard check it breaks, or as valid but poor; `reports/tables/failure_causes.csv`, `failure_cases.csv`, `reports/figures/failure_cases.png`, discussed in `reports/failure_cases.md` (about 3 minutes) |
+| `python run.py figures` | Redraw every figure from the saved tables and logs in seconds, without training or sampling (`--tables` first rebuilds the screening tables from the saved runs). The per-epoch logs of the screening runs are copied to `reports/logs/screen/`, so the training curves can be redrawn from a fresh clone |
+| `python run.py app` | The Streamlit demo (T34, T36): the room, door, furniture, budget and options in the sidebar; the top 3 layouts with quality, cost, floor use, each hard check and JSON and PNG exports; the five methods compared on the same room; the saved figures. It opens without trained models and says what to run |
 | `python -m spacegen.viz layout.json layout.png` | Draw a layout JSON as a floor plan with its hard-check results |
 
 ## Reproducibility
@@ -134,3 +137,9 @@ does the same thing.
   72% raw valid against 67% and a top-3 quality of 0.85 against 0.79; Tanh nearly doubles M1's validity but lowers
   M2's. Left: the final 3-seed runs (T33b), the Week 2 hours and the go or no-go for the extras. Tech Spec and
   Development Plan v1.5
+- [x] T34, T36 Streamlit app (`python run.py app`, `app/streamlit_app.py`, logic in `spacegen/app_logic.py`): room, door,
+  furniture, budget and an optional pinned item in the sidebar; the top 3 with quality, cost, floor use, each hard
+  check and JSON and PNG exports; the five methods on the same room; the saved figures. `tests/test_app.py` runs
+  the app headless, also without trained models
+- [x] T35 `python run.py figures` redraws every figure from the saved tables and logs in seconds; the screening
+  runs' per-epoch logs are copied to `reports/logs/screen/`, so a fresh clone can redraw the training curves

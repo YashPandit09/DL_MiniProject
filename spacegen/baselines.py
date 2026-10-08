@@ -59,10 +59,11 @@ class UniformBaseline:
     def __init__(self, catalog: RoomCatalog):
         self.catalog = catalog
 
-    def sample(self, cond: Condition, n: int, rng: np.random.Generator) -> Samples:
-        return Samples([self._one(cond, rng) for _ in range(n)], n)
+    def sample(self, cond: Condition, n: int, rng: np.random.Generator, pins: dict | None = None) -> Samples:
+        """`pins` (T38): {slot name: Pin}; a pinned item stands on its spot, with its facing if given."""
+        return Samples([self._one(cond, rng, pins or {}) for _ in range(n)], n)
 
-    def _one(self, cond: Condition, rng: np.random.Generator) -> Layout:
+    def _one(self, cond: Condition, rng: np.random.Generator, pins: dict) -> Layout:
         items = {}
         for name, variant_id in cond.items.items():
             variant = self.catalog.slot(name).variant(variant_id)
@@ -70,6 +71,8 @@ class UniformBaseline:
             half = geometry.effective_size(np.array([variant.w, variant.d]), rot) / 2
             room = np.array([cond.width, cond.depth])
             items[name] = (*rng.uniform(half, np.maximum(room - half, half)), rot)
+            if name in pins:
+                items[name] = (pins[name].x, pins[name].y, rot if pins[name].facing is None else pins[name].facing)
         return _layout(cond, items, self.catalog)
 
 
@@ -104,22 +107,30 @@ class StatisticalBaseline:
             self.examples[(k, None, None, None)] = rows
         return self
 
-    def sample(self, cond: Condition, n: int, rng: np.random.Generator) -> Samples:
+    def sample(self, cond: Condition, n: int, rng: np.random.Generator, pins: dict | None = None) -> Samples:
+        """`pins` (T38): {slot name: Pin}; pinned items are placed first, on their spots, and the
+        others are drawn again while they overlap them."""
         if self.width_edges is None:
             raise RuntimeError("fit() B2 on training layouts first")
-        return Samples([self._one(cond, rng) for _ in range(n)], n)
+        return Samples([self._one(cond, rng, pins or {}) for _ in range(n)], n)
 
-    def _one(self, cond: Condition, rng: np.random.Generator) -> Layout:
+    def _one(self, cond: Condition, rng: np.random.Generator, pins: dict) -> Layout:
         room = np.array([cond.width, cond.depth])
         wall = WALLS.index(cond.door_wall)
         sizes = (int(np.digitize(cond.width, self.width_edges)), int(np.digitize(cond.depth, self.depth_edges)))
         placed_center, placed_eff, items = [], [], {}
-        for slot in self.catalog.slots:  # slot order: sofa first
+        order = sorted(self.catalog.slots, key=lambda slot: slot.name not in pins)  # pinned first, then slot order
+        for slot in order:  # slot order: sofa first
             if slot.name not in cond.items:
                 continue
             variant = slot.variant(cond.items[slot.name])
             pool = self._pool(slot.index, wall, sizes)
-            for _ in range(self.config.b2_redraws + 1):
+            if slot.name in pins:
+                pin = pins[slot.name]
+                rot = pool[rng.integers(len(pool))][2] if pin.facing is None else pin.facing
+                center = np.array([pin.x, pin.y], dtype=float)
+                eff = geometry.effective_size(np.array([variant.w, variant.d]), int(rot))
+            for _ in range(0 if slot.name in pins else self.config.b2_redraws + 1):
                 u, v, rot = pool[rng.integers(len(pool))]
                 center = (np.array([u, v]) + rng.normal(0, self.config.b2_noise, size=2)) * room
                 eff = geometry.effective_size(np.array([variant.w, variant.d]), int(rot))

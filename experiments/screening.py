@@ -97,12 +97,15 @@ def run_name(overrides: list[str]) -> str:
 
 def run_experiment(name: str, data_dir: Path, seed: int, device: str, runs_dir: Path = RUNS_DIR / "cvae" / "screen",
                    settings: list[tuple[str, list[str]]] | None = None, base: list[str] = (),
-                   log=print) -> pd.DataFrame:
-    """Train what is missing, then collect one row per setting of the experiment."""
+                   log=print, train: bool = True) -> pd.DataFrame:
+    """Train what is missing, then collect one row per setting of the experiment. With
+    train=False a missing run is an error (T35: tables are rebuilt from the saved runs only)."""
     rows = []
     for label, overrides in settings or EXPERIMENTS[name]:
         run_dir = runs_dir / run_name([*base, *overrides])
         if not (run_dir / "summary.json").exists():
+            if not train:
+                raise FileNotFoundError(f"{name}: the run {run_dir.name} is not in {runs_dir}")
             log(f"{name}: training {label} -> {run_dir.name}")
             model, training = load_configs(overrides=[*base, *overrides])
             train_cvae(data_dir, run_dir, seed, device, model, training, log=lambda message: None)
@@ -143,6 +146,10 @@ def _backfilled(run_dir: Path, data_dir: Path, seed: int, device: str) -> dict:
     set_a = load_layouts(data_dir / "set_a.npz")
     with np.load(data_dir / "splits.npz") as splits:
         rows = {part: splits[f"set_a_{part}"] for part in ("train", "test")}
+    # the M1 check draws z on the run's device, and the CPU and the GPU give different draws for one seed
+    device = json.loads((run_dir / "run.json").read_text(encoding="utf-8")).get("device", device)
+    if str(device).startswith("cuda") and not torch.cuda.is_available():
+        raise RuntimeError(f"{run_dir.name} was trained on the GPU; its M1 check can only be repeated on one")
     model = load_cvae_run(run_dir, device)
     if missing_diversity:
         redone = m1_check(model, set_a, rows["test"], check["rooms"], seed, catalog, device)

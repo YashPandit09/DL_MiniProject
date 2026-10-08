@@ -1,0 +1,97 @@
+"""Regeneration tests (T44, T46): the step list, the output folder, and the comparison with saved results."""
+import json
+import os
+import subprocess
+import sys
+from types import SimpleNamespace
+
+import pandas as pd
+
+from experiments.regenerate import check, compare_table, is_timing, model_hashes, record, run_all, steps
+from spacegen.paths import REPO_ROOT
+
+
+def test_steps_are_named_once_and_cover_the_pipeline_in_order():
+    names = [name for name, _ in steps()]
+    assert len(set(names)) == len(names)
+    order = ["data", "evaluator", "screening", "gate2", "frozen-seeds", "e1", "e8", "e10", "e12", "figures"]
+    assert [name for name in names if name in order] == order
+    commands = {name: commands for name, commands in steps()}
+    assert all("--tag" in command and "final" in command for name in ("e1", "e8", "e10") for command in commands[name])
+    assert [command[command.index("--sets") + 1] for name, group in steps() if name.startswith("e10-")
+            for command in group] == ["interpolation", "unseen_combination", "out_of_range"]
+
+
+def test_steps_run_in_order_and_stop_at_a_failure():
+    ran, log = [], []
+
+    def run(command, cwd):
+        ran.append(command[2:])
+        return SimpleNamespace(returncode=1 if command[2] == "e8" else 0)
+
+    assert run_all("frozen-seeds", "e1", run=run, log=log.append) == 0
+    assert [command[0] for command in ran] == ["train-cvae"] * 3 + ["e1"]
+    assert [command[command.index("--seed") + 1] for command in ran[:3]] == ["0", "1", "2"]
+    ran.clear()
+    assert run_all("e1", "e12", run=run, log=log.append) == 1  # e8 fails: nothing after it runs
+    assert [command[0] for command in ran] == ["e1", "e8"] and "continue with: python run.py all --from e8" in log[-1]
+
+
+def test_outputs_follow_the_environment_variable(tmp_path):
+    code = "import spacegen.paths as p; print(p.DATA_DIR); print(p.RUNS_DIR); print(p.REPORTS_DIR); print(p.CONFIG_DIR)"
+    env = {**os.environ, "SPACEGEN_OUTPUT": str(tmp_path)}
+    lines = subprocess.run([sys.executable, "-c", code], cwd=REPO_ROOT, env=env, capture_output=True, text=True,
+                           check=True).stdout.splitlines()
+    assert lines[:3] == [str(tmp_path.resolve() / name) for name in ("data", "runs", "reports")]
+    assert lines[3] == str(REPO_ROOT / "configs")  # the configuration always comes from the repository
+    env.pop("SPACEGEN_OUTPUT")
+    plain = subprocess.run([sys.executable, "-c", code], cwd=REPO_ROOT, env=env, capture_output=True, text=True,
+                           check=True).stdout.splitlines()
+    assert plain[1] == str(REPO_ROOT / "runs")
+
+
+def test_tables_are_compared_outside_their_timing_columns():
+    assert is_timing("seconds_per_room") and is_timing("ms_per_valid_std") and is_timing("m2_seconds_per_room")
+    assert not is_timing("rvr") and not is_timing("timing_rooms")
+    saved = pd.DataFrame({"method": ["B1", "M2"], "rvr": [0.1, 0.7], "ms_per_valid": [20.0, 22.0], "quality": [0.3, None]})
+    assert compare_table(saved, saved.assign(ms_per_valid=[1.0, 2.0])) is None  # timings may differ, NaN equals NaN
+    assert compare_table(saved, saved.assign(rvr=[0.1, 0.71])) == "columns differ: rvr"
+    assert compare_table(saved, saved.drop(columns="quality")) == "different columns"
+    assert compare_table(saved, saved.iloc[:1]) == "2 rows saved, 1 now"
+
+
+def test_check_counts_differences_in_tables_models_and_the_dataset(tmp_path):
+    tables, runs, data = tmp_path / "tables", tmp_path / "runs", tmp_path / "data" / "v1"
+    tables.mkdir()
+    table = pd.DataFrame({"method": ["M2"], "rvr": [0.7], "seconds_per_room": [0.9]})
+    for name in ("same.csv", "changed.csv", "fresh.csv"):
+        table.to_csv(tables / name, index=False)
+    saved = {"same.csv": table.assign(seconds_per_room=[5.0]).to_csv(index=False),
+             "changed.csv": table.assign(rvr=[0.6]).to_csv(index=False)}
+    (runs / "cvae" / "frozen" / "seed-0").mkdir(parents=True)
+    (runs / "cvae" / "frozen" / "seed-0" / "model.pt").write_bytes(b"weights")
+    data.mkdir(parents=True)
+    (data / "metadata.json").write_text(json.dumps({"hash": "abc"}), encoding="utf-8")
+    hashes = tmp_path / "model_hashes.json"
+    recorded = record(hashes, runs, data)
+    assert recorded["dataset"] == {"v1": "abc"} and list(recorded["models"]) == ["cvae/frozen/seed-0"]
+    assert model_hashes(runs) == recorded["models"]
+    log = []
+    options = dict(tables_dir=tables, hashes=hashes, runs_dir=runs, data_dir=data, frozen=tmp_path / "none.yaml",
+                   show=saved.get, log=log.append)
+    assert check(**options) == 1  # only changed.csv
+    assert log[:3] == ["DIFF   changed.csv: columns differ: rvr", "new    fresh.csv (not in the last commit)",
+                       "equal  same.csv"]
+    assert "models: 1 identical, 0 different, 0 not regenerated" in log[3] and "identical" in log[4]
+    (runs / "cvae" / "frozen" / "seed-0" / "model.pt").write_bytes(b"other weights")
+    (data / "metadata.json").write_text(json.dumps({"hash": "xyz"}), encoding="utf-8")
+    log.clear()
+    assert check(**options) == 3
+    assert "1 different" in log[3] and "DIFFERENT" in log[4] and log[-1] == "3 difference(s)"
+    (tables / "changed.csv").unlink()
+    (runs / "cvae" / "frozen" / "seed-0" / "model.pt").unlink()
+    (data / "metadata.json").unlink()
+    log.clear()
+    assert check(**options) == 0  # what is not there is reported, not counted
+    assert "1 not regenerated" in log[2] and "not built" in log[3]
+    assert log[-1] == "everything compared is reproduced exactly"

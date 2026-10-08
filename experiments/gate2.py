@@ -45,7 +45,7 @@ from spacegen.catalog import load_room_catalog
 from spacegen.config import DEFAULT_CONFIG, load_config
 from spacegen.evaluate import EvaluationConfig
 from spacegen.latent_opt import load_latent_opt_config
-from spacegen.paths import CONFIG_DIR, DATA_DIR, REPORTS_DIR, RUNS_DIR
+from spacegen.paths import CONFIG_DIR, DATA_DIR, OUTPUT_ROOT, REPO_ROOT, REPORTS_DIR, RUNS_DIR
 from spacegen.pipeline import load_cvae_run, load_evaluator_run, load_pipeline_config
 from spacegen.provenance import dataset_hash
 from spacegen.rules import load_rules
@@ -242,7 +242,10 @@ def main(argv: list[str] | None = None) -> int:
     if not args.no_train:
         note = (f"{chosen} ({', '.join(candidates[chosen])})." if candidates[chosen]
                 else "the default, unchanged (no candidate passed the rule).")
-        print(f"wrote {write_frozen(candidates[chosen], note)}")
+        # a regeneration into another folder (SPACEGEN_OUTPUT) must not touch the repository's frozen config
+        target = (CONFIG_DIR if OUTPUT_ROOT == REPO_ROOT else OUTPUT_ROOT / "configs") / "frozen.yaml"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        print(f"wrote {write_frozen(candidates[chosen], note, target=target)}")
     print(f"chosen: {chosen}")
     return 0
 

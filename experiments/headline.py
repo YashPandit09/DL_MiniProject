@@ -27,7 +27,18 @@ E1   The evaluation protocol of spacegen.evaluate: the same 500 rooms and 64 raw
 E10  M1, M2 and G0 on the E1 rooms (in distribution) and on the first 500 rooms of each held-out
      set: interpolation (22 to 26 m^2), unseen combination (above 32 m^2) and out of range (W 7 to
      8 m, D 6 to 7 m). G0, added to the spec's M1 and M2, shows how hard each set is by itself:
-     room size alone moves the quality score, through circulation for example.
+     room size alone moves the quality score, through circulation for example. The E10 table has no
+     timing columns: its sets run one after another for a long time, and such timings do not compare
+     (see Timings below).
+
+Timings. The laptop's speed changes with its power and thermal state: the same M2 run was
+measured 1.6 times faster on one evening than on the afternoon before, and within one E8 run the
+machine slowed down by half. Methods timed one after another therefore cannot be compared. E1 and
+E8 take their timing columns (seconds_per_room, ms_per_valid) from an interleaved timing pass
+instead: on the first 100 E1 rooms every method (and every seed, and every step count of E8)
+samples each room in turn, so a change of speed falls on all of them alike. The timings of the
+long runs themselves stay in the columns ending in _run. --retime repeats the pass. Each command
+also times a fixed workload before and after (speed_check, saved in speed.json).
 
 Per-room rows are kept in runs/headline/<cvae run>/<set>/<method>.csv (with --tag:
 runs/headline/<tag>/<cvae run>/..., and runs/headline/<tag>/baselines/... for B1, B2 and G0) and
@@ -175,7 +186,8 @@ class Headline:
                        "items": float(np.mean([len(c.items) for c in conditions]))}
             for method in E10_METHODS:
                 row = self.summary(set_name, method, reference)
-                rows.append({**context, **{k: v for k, v in row.items() if not k.startswith("diversity")}})
+                rows.append({**context, **{k: v for k, v in row.items()
+                                           if not k.startswith("diversity") and k not in TIMING}})
         return pd.DataFrame(rows)
 
     def _baselines(self) -> None:
@@ -240,6 +252,63 @@ def combine(tables: list[pd.DataFrame], keys: list[str]) -> pd.DataFrame:
     return table
 
 
+def speed_check(repeats: int = 3) -> float:
+    """Seconds for a fixed CPU workload, the best of `repeats`: NumPy and PyTorch matrix products
+    and a plain Python loop, the three kinds of work the samplers and the checker do."""
+    a = np.random.default_rng(0).standard_normal((400, 400))
+    x = torch.randn(256, 256, generator=torch.Generator().manual_seed(0))
+    best = float("inf")
+    for _ in range(repeats):
+        start = time.perf_counter()
+        for _ in range(20):
+            a @ a
+        with torch.no_grad():
+            for _ in range(200):
+                torch.tanh(x @ x)
+        sum(i * i for i in range(200_000))
+        best = min(best, time.perf_counter() - start)
+    return best
+
+
+TIMING = ("seconds_per_room", "ms_per_valid")
+
+
+def timing_pass(samplers: dict[str, tuple[object, bool]], conditions: list[Condition], n: int, seed: int,
+                catalog: RoomCatalog, rules: Rules) -> pd.DataFrame:
+    """One row per sampler and room (seconds, valid samples), with the samplers taking turns room
+    by room. `samplers` maps a name to (sampler, prefiltered); the time is measured as in
+    spacegen.evaluate.evaluate: sampling, plus the checks unless the sampler filters itself."""
+    rngs = {name: np.random.default_rng([seed, 7, index]) for index, name in enumerate(samplers)}
+    rows = []
+    for room, cond in enumerate(conditions):
+        for name, (sampler, prefiltered) in samplers.items():
+            row = evaluate(sampler, [cond], n, rngs[name], catalog, rules, prefiltered).iloc[0]
+            rows.append({"sampler": name, "room": room, "seconds": float(row["seconds"]), "valid": int(row["valid"]),
+                         "attempts": int(row["attempts"])})
+    return pd.DataFrame(rows)
+
+
+def with_timing(table: pd.DataFrame, rows: pd.DataFrame, key: str) -> pd.DataFrame:
+    """A table with its timing columns replaced by those of a timing pass. Sampler names are
+    "<value of the key column>|<run>": several runs of one value give a mean and a standard
+    deviation (with a `seeds` column in the table). The long run's own timings move to *_run."""
+    groups = rows.groupby("sampler", sort=False)
+    per_sampler = pd.DataFrame({"timing_rooms": groups.size(), "seconds_per_room": groups["seconds"].mean(),
+                                "ms_per_valid": 1000 * groups["seconds"].sum() / groups["valid"].sum()})
+    per_sampler[key] = [str(name).split("|")[0] for name in per_sampler.index]
+    by_key = per_sampler.groupby(key, sort=False)
+    mean, spread, rooms = by_key[list(TIMING)].mean(), by_key[list(TIMING)].std(ddof=1), by_key["timing_rooms"].first()
+    table = table.drop(columns=[f"{c}_std" for c in TIMING if f"{c}_std" in table.columns])
+    table = table.rename(columns={c: f"{c}_run" for c in TIMING})
+    lookup = table[key].astype(str)
+    for column in TIMING:
+        table[column] = lookup.map(mean[column])
+        if "seeds" in table.columns:
+            table[f"{column}_std"] = lookup.map(spread[column])
+    table["timing_rooms"] = lookup.map(rooms)
+    return table
+
+
 def _file_hash(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -261,6 +330,9 @@ def main(argv: list[str] | None = None) -> int:
                         help="E10: compute only these sets (the table is written once all four are done)")
     parser.add_argument("--e8-rooms", type=int, default=200, help="E8: the first rooms of the E1 list (diversity rooms)")
     parser.add_argument("--fresh", action="store_true", help="recompute the cached per-room rows")
+    parser.add_argument("--timing-rooms", type=int, default=100,
+                        help="E1 and E8: rooms of the interleaved timing pass (0 keeps the long runs' own timings)")
+    parser.add_argument("--retime", action="store_true", help="repeat the interleaved timing pass")
     args = parser.parse_args(argv)
     if len(args.cvae) > 1 and args.tag is None:
         parser.error("several --cvae runs need a --tag")
@@ -289,7 +361,10 @@ def main(argv: list[str] | None = None) -> int:
 
     tables_dir, figures_dir = REPORTS_DIR / "tables", REPORTS_DIR / "figures"
     suffix = f"_{args.tag}" if args.tag else ""
+    speed_file = (root or headlines[0].cache) / "speed.json"
+    speeds = json.loads(speed_file.read_text(encoding="utf-8")) if speed_file.exists() else {}
     for name in args.experiments:
+        before = speed_check()
         if name == "e1":
             tables = [h.e1() for h in headlines]
             keys = ["method"]
@@ -303,6 +378,25 @@ def main(argv: list[str] | None = None) -> int:
             tables = [_latent_steps(h, run, args.e8_rooms) for h, run in zip(headlines, args.cvae)]
             keys = ["steps", "method"]
         table = tables[0] if len(tables) == 1 else combine(tables, keys)
+        if name in ("e1", "e8") and args.timing_rooms > 0:
+            timing_file = (root or headlines[0].cache) / f"timing_{name}.csv"
+            if args.retime or args.fresh or not timing_file.exists():
+                first = headlines[0]
+                if name == "e1":
+                    samplers = {method: (sampler, prefiltered)
+                                for method, sampler, prefiltered in baseline_samplers(data_dir, catalog, rules)}
+                    for h, run in zip(headlines, args.cvae):
+                        samplers[f"M1|{run.name}"] = (CVAESampler(h.cvae, catalog), False)
+                        samplers[f"M2|{run.name}"] = (LatentOptSampler(h.cvae, catalog, rules, latent), False)
+                else:
+                    samplers = {f"{steps}|{run.name}": (LatentOptSampler(h.cvae, catalog, rules,
+                                                                         load_latent_opt_config(steps=steps)), False)
+                                for steps in E8_STEPS for h, run in zip(headlines, args.cvae)}
+                conditions = first.rooms("in_distribution")[0][:args.timing_rooms]
+                print(f"{name}: timing {len(samplers)} samplers in turn on {len(conditions)} rooms")
+                timing_pass(samplers, conditions, config.samples, seed, catalog, rules).to_csv(
+                    timing_file, index=False, lineterminator="\n")
+            table = with_timing(table, pd.read_csv(timing_file), keys[0])
         tables_dir.mkdir(parents=True, exist_ok=True)
         table.round(5).to_csv(tables_dir / f"{name}{suffix}.csv", index=False, lineterminator="\n")
         with pd.option_context("display.width", 250, "display.max_columns", 40):
@@ -310,7 +404,13 @@ def main(argv: list[str] | None = None) -> int:
         figures_dir.mkdir(parents=True, exist_ok=True)
         for figure_name, figure in FIGURES[name](table, None).items():
             figure.savefig(figures_dir / f"{name}{suffix}_{figure_name}.png", facecolor="#fcfcfb")
-        print(f"wrote reports/tables/{name}{suffix}.csv and its figures")
+        after = speed_check()
+        speeds[name] = {"before": round(before, 4), "after": round(after, 4),
+                        "finished": time.strftime("%Y-%m-%d %H:%M")}
+        speed_file.write_text(json.dumps(speeds, indent=2), encoding="utf-8", newline="\n")
+        steady = max(before, after) / min(before, after) <= 1.2
+        print(f"wrote reports/tables/{name}{suffix}.csv and its figures; speed check {before:.3f} s before, "
+              f"{after:.3f} s after" + ("" if steady else ": the machine changed speed, do not trust the timings"))
     return 0
 
 

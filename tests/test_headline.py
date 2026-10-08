@@ -8,7 +8,8 @@ import pytest
 import torch
 
 from experiments.figures import FIGURES
-from experiments.headline import E10_METHODS, METHODS, MODEL_FREE, SETS, Headline, TopThree, combine
+from experiments.headline import (E10_METHODS, METHODS, MODEL_FREE, SETS, Headline, TopThree, combine, speed_check,
+                                 timing_pass, with_timing)
 from spacegen.dataset import load_layouts
 from spacegen.evaluate import EvaluationConfig, evaluate_baselines
 from spacegen.latent_opt import load_latent_opt_config
@@ -163,3 +164,38 @@ def test_e8_figure_takes_a_combined_table(tmp_path):
     assert table["rvr_std"].round(6).tolist() == [round(np.std([0.0, 0.01], ddof=1), 6)] * 3
     figure = FIGURES["e8"](table, tmp_path)["steps"]
     assert "2 CVAE seeds" in figure.texts[0].get_text()
+
+
+def test_timing_pass_takes_the_samplers_in_turn(make, catalog, rules):
+    from spacegen.baselines import UniformBaseline
+    from spacegen.evaluate import generator_sampler
+
+    rooms = make().rooms("in_distribution")[0][:2]
+    samplers = {"B1": (UniformBaseline(catalog), False), "G0": (generator_sampler(catalog, rules), True)}
+    rows = timing_pass(samplers, rooms, 3, 0, catalog, rules)
+    assert rows["sampler"].tolist() == ["B1", "G0", "B1", "G0"] and rows["room"].tolist() == [0, 0, 1, 1]
+    assert (rows["seconds"] > 0).all() and (rows["attempts"] == 3).all() and rows["valid"].between(0, 3).all()
+
+
+def test_timing_columns_come_from_the_timing_pass():
+    rows = pd.DataFrame([{"sampler": name, "room": room, "seconds": seconds, "valid": valid}
+                         for name, seconds, valid in (("B1", 0.1, 2), ("M2|a", 1.0, 10), ("M2|b", 2.0, 20))
+                         for room in (0, 1)])
+    rows.loc[1, "seconds"] = 0.3  # B1: 0.1 s and 0.3 s
+    table = pd.DataFrame({"method": ["B1", "M2"], "seeds": [1, 2], "seconds_per_room": [9.0, 9.0],
+                          "seconds_per_room_std": [np.nan, 1.0], "ms_per_valid": [9.0, 9.0],
+                          "ms_per_valid_std": [np.nan, 1.0]})
+    timed = with_timing(table, rows, "method").set_index("method")
+    assert timed.loc["B1", "seconds_per_room"] == pytest.approx(0.2) and timed.loc["B1", "ms_per_valid"] == pytest.approx(100)
+    assert np.isnan(timed.loc["B1", "seconds_per_room_std"])  # one sampler: no spread
+    assert timed.loc["M2", "seconds_per_room"] == pytest.approx(1.5)
+    assert timed.loc["M2", "seconds_per_room_std"] == pytest.approx(np.std([1.0, 2.0], ddof=1))
+    assert timed.loc["M2", "ms_per_valid"] == pytest.approx(100) and timed.loc["M2", "ms_per_valid_std"] == pytest.approx(0)
+    assert (timed["seconds_per_room_run"] == 9.0).all() and (timed["timing_rooms"] == 2).all()
+    steps = with_timing(pd.DataFrame({"steps": [0, 25], "seconds_per_room": [1.0, 1.0], "ms_per_valid": [1.0, 1.0]}),
+                        rows.assign(sampler=["0|a", "0|a", "25|a", "25|a", "25|b", "25|b"]), "steps")
+    assert steps["seconds_per_room"].tolist() == pytest.approx([0.2, 1.5]) and "seconds_per_room_std" not in steps
+
+
+def test_speed_check_times_a_fixed_workload():
+    assert 0 < speed_check(repeats=1) < 60

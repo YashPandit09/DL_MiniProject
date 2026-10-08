@@ -72,6 +72,30 @@ TASKS: dict[str, tuple[str, list[list[str]]]] = {
         "Gate 2 freeze: 3 seeds of the shortlisted CVAE settings on validation rooms; writes configs/frozen.yaml",
         [[PY, "-m", "experiments.gate2"]],
     ),
+    "e12": (
+        "E12: completion around a pinned item, per item: M2, M1, G0-pin, B1 and B2 (--cvae RUN ..., --rooms N)",
+        [[PY, "-m", "experiments.pinned"]],
+    ),
+    "failures": (
+        "failure-case analysis: what breaks, how often, and a gallery (reports/failure_cases.md discusses it)",
+        [[PY, "-m", "experiments.failure_cases"]],
+    ),
+    "figures": (
+        "redraw every figure from the saved tables and logs, in seconds (--tables rebuilds the screening tables)",
+        [[PY, "-m", "experiments.make_figures"]],
+    ),
+    "all": (
+        "regenerate every result in order, about eight hours (--list, --from STEP, --to STEP; see experiments/regenerate.py)",
+        [[PY, "-m", "experiments.regenerate", "all"]],
+    ),
+    "check-regeneration": (
+        "compare regenerated tables, models and the dataset with the saved ones (--record saves the hashes)",
+        [[PY, "-m", "experiments.regenerate", "check"]],
+    ),
+    "app": (
+        "the Streamlit demo: top 3 layouts, the five methods compared, the saved figures",
+        [[PY, "-m", "streamlit", "run", "app/streamlit_app.py"]],
+    ),
 }
 
 

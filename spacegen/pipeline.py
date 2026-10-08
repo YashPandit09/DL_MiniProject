@@ -27,11 +27,12 @@ from spacegen.catalog import RoomCatalog
 from spacegen.config import DEFAULT_CONFIG, load_config
 from spacegen.dataset import LayoutBatch, decode_targets, encode_conditions, stack_layouts
 from spacegen.generator import Condition
-from spacegen.latent_opt import LatentOptConfig, Problem, optimize
+from spacegen.latent_opt import LatentOptConfig, Problem, optimize, snap_pins
 from spacegen.layout import Layout, make_layout
 from spacegen.metrics import layout_distance
 from spacegen.models.cvae import CVAE, CVAEConfig
 from spacegen.models.evaluator import Evaluator, EvaluatorConfig
+from spacegen.pins import Pin, displacement, pin_errors, snap
 from spacegen.quality import quality_score
 from spacegen.raster import RasterConfig, rasterize_layouts
 from spacegen.rules import Rules, check_layout, door_geometry, footprint_ratio, reachability
@@ -67,15 +68,22 @@ class CVAESampler:
 
     name = "M1"
 
-    def __init__(self, model: CVAE, catalog: RoomCatalog, device: str | torch.device = "cpu"):
+    def __init__(self, model: CVAE, catalog: RoomCatalog, device: str | torch.device = "cpu",
+                 pins: dict[str, Pin] | None = None):
         self.model, self.catalog, self.device = model.to(device).eval(), catalog, device
+        self.pins = pins or {}  # (T38) pinned items are moved onto their spots after decoding
+        self.last_displacement = np.zeros(0)  # per sample: the pinned items' distance from their pins before that
 
     def sample(self, cond: Condition, n: int, rng: np.random.Generator) -> Samples:
         blank = condition_batch(cond, n, self.catalog)
         c = torch.as_tensor(encode_conditions(blank, self.catalog), device=self.device)
         positions, logits = self.model.generate(c, _torch_generator(rng, self.device))
         decoded = decode_targets(positions, logits, blank, self.catalog)
-        return Samples([decoded.layout(i, self.catalog) for i in range(n)], n)
+        layouts = [decoded.layout(i, self.catalog) for i in range(n)]
+        if self.pins:
+            self.last_displacement = np.array([displacement(layout, self.pins, self.catalog) for layout in layouts])
+            layouts = [snap(layout, self.pins, self.catalog) for layout in layouts]
+        return Samples(layouts, n)
 
 
 class LatentOptSampler:
@@ -84,22 +92,30 @@ class LatentOptSampler:
     name = "M2"
 
     def __init__(self, model: CVAE, catalog: RoomCatalog, rules: Rules, config: LatentOptConfig,
-                 device: str | torch.device = "cpu"):
+                 device: str | torch.device = "cpu", pins: dict[str, Pin] | None = None):
         self.model, self.catalog, self.rules, self.config = model.to(device).eval(), catalog, rules, config
         self.device = device
+        self.pins = pins or {}  # (T38) pulled towards their spots while optimizing, then snapped
+        self.last_displacement = np.zeros(0)  # per sample: the pinned items' distance from their pins before the snap
 
     def sample(self, cond: Condition, n: int, rng: np.random.Generator) -> Samples:
         blank = condition_batch(cond, n, self.catalog)
-        problem = problem_for(cond, blank, self.catalog, self.rules, self.device)
+        problem = problem_for(cond, blank, self.catalog, self.rules, self.device, self.pins)
         z0 = torch.randn(n, self.model.config.latent, generator=_torch_generator(rng, self.device), device=self.device)
         result = optimize(self.model, z0, problem, self.config)
-        decoded = decode_targets(result.positions.clamp(0.0, 1.0), F.one_hot(result.rot, 4), blank, self.catalog)
+        positions = result.positions
+        if self.pins:
+            room = torch.tensor([cond.width, cond.depth], dtype=positions.dtype, device=positions.device)
+            off = ((positions * room - problem.pin_center) ** 2).sum(dim=-1).sqrt()  # (n, K) meters
+            self.last_displacement = ((off * problem.pin_mask).sum(dim=1) / problem.pin_mask.sum(dim=1)).cpu().numpy()
+            positions = snap_pins(positions, problem)
+        decoded = decode_targets(positions.clamp(0.0, 1.0), F.one_hot(result.rot, 4), blank, self.catalog)
         return Samples([decoded.layout(i, self.catalog) for i in range(n)], n)
 
 
 def problem_for(cond: Condition, blank: LayoutBatch, catalog: RoomCatalog, rules: Rules,
-                device: str | torch.device) -> Problem:
-    """The latent-optimization problem of a room: its condition vectors and its door zone."""
+                device: str | torch.device, pins: dict[str, Pin] | None = None) -> Problem:
+    """The latent-optimization problem of a room: its condition vectors, its door zone and its pins."""
     door = door_geometry(cond.width, cond.depth, cond.door_wall, cond.door_offset, rules.door)
     n = len(blank)
     c = torch.as_tensor(encode_conditions(blank, catalog), device=device)
@@ -107,7 +123,17 @@ def problem_for(cond: Condition, blank: LayoutBatch, catalog: RoomCatalog, rules
     def repeat(values) -> torch.Tensor:
         return torch.as_tensor(np.asarray(values, dtype=np.float32), device=device).expand(n, -1)
 
-    return Problem(c, repeat(door.zone_center), repeat(door.zone_size))
+    if not pins:
+        return Problem(c, repeat(door.zone_center), repeat(door.zone_size))
+    k = catalog.num_slots
+    mask, center, facing = np.zeros(k, dtype=bool), np.zeros((k, 2), dtype=np.float32), np.full(k, -1, dtype=np.int64)
+    for name, pin in pins.items():
+        slot = catalog.slot(name).index
+        mask[slot], center[slot], facing[slot] = True, (pin.x, pin.y), -1 if pin.facing is None else pin.facing
+    return Problem(c, repeat(door.zone_center), repeat(door.zone_size),
+                   pin_mask=torch.as_tensor(mask, device=device).expand(n, -1),
+                   pin_center=torch.as_tensor(center, device=device).expand(n, -1, -1),
+                   pin_rot=torch.as_tensor(facing, device=device).expand(n, -1))
 
 
 # --------------------------------------------------------------------------- the request (T25)
@@ -135,6 +161,7 @@ class Request:
     door_offset: float
     items: dict[str, str | None]  # slot name -> variant id, or None to let the pipeline choose
     budget: float | None = None
+    pins: dict[str, Pin] = field(default_factory=dict)  # (T38) slot name -> where the user fixed it
 
 
 @dataclass
@@ -243,11 +270,14 @@ def generate(request: Request, catalog: RoomCatalog, rules: Rules, cvae: CVAE, r
     cond, message = choose_variants(request, catalog, rules)
     if cond is None:
         return PipelineResult(request, None, message=message, warnings=warnings)
+    pin_problems = pin_errors(request.pins, cond, catalog, rules)
+    if pin_problems:
+        return PipelineResult(request, None, message="; ".join(pin_problems), warnings=warnings)
     timings = {"check": time.perf_counter() - start}
 
     start = time.perf_counter()
-    sampler = (LatentOptSampler(cvae, catalog, rules, latent, device) if config.latent_opt
-               else CVAESampler(cvae, catalog, device))
+    sampler = (LatentOptSampler(cvae, catalog, rules, latent, device, request.pins) if config.latent_opt
+               else CVAESampler(cvae, catalog, device, request.pins))
     layouts = sampler.sample(cond, config.candidates, rng).layouts
     timings["sample"] = time.perf_counter() - start
 

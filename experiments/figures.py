@@ -13,10 +13,20 @@ import pandas as pd
 from matplotlib.figure import Figure
 
 from experiments.screening import HUBER, TARGET_LOSS
+from spacegen.paths import REPORTS_DIR
 from spacegen.viz import CONTEXT, INK, INK_MUTED, INK_SECONDARY, SURFACE, _quiet_axes
+
+LOGS_DIR = REPORTS_DIR / "logs" / "screen"  # committed copies of the screening runs' per-epoch logs (T35)
 
 SERIES = ("#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948")
 LOSSES = ("mse", "mae", *(f"huber {d:g}" for d in HUBER))
+
+
+def epoch_log(runs: Path | None, run: str) -> pd.DataFrame:
+    """The per-epoch log of a screening run: from the run folder, or from the committed copy in
+    LOGS_DIR when the runs are not on this machine (a fresh clone)."""
+    path = None if runs is None else runs / run / "log.csv"
+    return pd.read_csv(path if path is not None and path.exists() else LOGS_DIR / f"{run}.csv")
 
 
 def _figure(width: float, height: float, title: str) -> Figure:
@@ -125,7 +135,7 @@ def e2_curves(table: pd.DataFrame, runs: Path) -> Figure:
     rows = table.set_index("setting")
     for color, label in zip(SERIES, LOSSES):
         if label in rows.index:
-            epochs = pd.read_csv(runs / rows.loc[label, "run"] / "log.csv")
+            epochs = epoch_log(runs, rows.loc[label, "run"])
             ax.plot(epochs["epoch"], epochs["val_position_m"], color=color, linewidth=2, label=label)
     ax.set(xlabel="epoch", ylabel="position error, sampled z (m)")
     _quiet_axes(ax)
@@ -163,7 +173,7 @@ def e3b_gradients(table: pd.DataFrame, runs: Path) -> Figure:
                   "BatchNorm off unless stated; vanishing gradients show as norms falling towards the input layers")
     axes = np.atleast_1d(fig.subplots(rows_count, columns, sharey=True)).ravel()
     for ax, (_, row) in zip(axes, deep.iterrows()):
-        epochs = pd.read_csv(runs / row["run"] / "log.csv").set_index("epoch")
+        epochs = epoch_log(runs, row["run"]).set_index("epoch")
         layers = _gradient_layers(epochs.columns)
         for color, epoch in zip(SERIES, (1, 10, 50)):
             if epoch in epochs.index:
@@ -213,7 +223,7 @@ def e4_curves(table: pd.DataFrame, runs: Path, target: float) -> Figure:
         if prefix == "sgd ":  # keep plain SGD apart from SGD with momentum
             chosen = chosen[~chosen["setting"].str.contains("momentum")]
         for color, (_, row) in zip(SERIES, chosen.iterrows()):
-            epochs = pd.read_csv(runs / row["run"] / "log.csv")
+            epochs = epoch_log(runs, row["run"])
             ax.plot(epochs["epoch"], epochs["val_loss"], color=color, linewidth=1.8,
                     label="lr " + row["setting"].split()[-1])
         ax.axhline(target, color=INK_MUTED, linewidth=0.8, linestyle=":")
@@ -373,6 +383,28 @@ def e10_generalization(table: pd.DataFrame) -> Figure:
     return fig
 
 
+def e12_pinned(table: pd.DataFrame) -> Figure:
+    """Validity with the pinned item on its spot, and requests that get a valid layout at all, per pinned item."""
+    items = list(dict.fromkeys(table["item"]))
+    methods = list(dict.fromkeys(table["method"]))
+    rows = table.set_index(["item", "method"])
+    labels = [f"{item.replace('_', ' ')}\n{int(rows.loc[(item, methods[0]), 'requests'])} requests" for item in items]
+    fig = _figure(14, 4.4, "E12: one item pinned where it stands in a generator layout of the same room, 64 samples per "
+                           "request (M1, M2: mean and one standard deviation over the CVAE seeds)\nleft: samples that are "
+                           "valid with the item on its pin; right: requests that get at least one valid layout")
+    left, right = fig.subplots(1, 2)
+    colors = [METHOD_COLORS[method.split("-")[0]] for method in methods]
+    for ax, column, label in ((left, "rvr", "raw valid after the snap (%)"),
+                              (right, "requests_with_valid", "requests with a valid layout (%)")):
+        values = {method: [100 * rows.loc[(item, method), column] for item in items] for method in methods}
+        spread = [[100 * rows.loc[(item, method), f"{column}_std"] for item in items] for method in methods]
+        _bars(ax, labels, values, ".0f", colors, spread)
+        ax.set(ylabel=label)
+        ax.tick_params(axis="x", labelsize=7)
+    _legend_below(fig, left)
+    return fig
+
+
 # --------------------------------------------------------------------------- Gate 2 (T33)
 
 def gate2_candidates(runs: pd.DataFrame) -> Figure:
@@ -415,4 +447,5 @@ FIGURES = {
     "e1": lambda table, runs: {"results": e1_results(table), "ranking": e1_ranking(table)},
     "e10": lambda table, runs: {"generalization": e10_generalization(table)},
     "gate2": lambda table, runs: {"candidates": gate2_candidates(table)},
+    "e12": lambda table, runs: {"pinned": e12_pinned(table)},
 }
