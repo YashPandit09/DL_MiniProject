@@ -27,7 +27,19 @@ One thing does *not* carry over between devices: the same seed gives different r
 
 ## 3. Full regeneration into an empty folder
 
-Started on 9 October 2026, after the checks above: every step of `python run.py all`, written to an empty folder (`SPACEGEN_OUTPUT`). This section is updated with the outcome.
+**Not run yet.** It needs four to eight hours on mains power, and the laptop was on battery when everything else was finished (9 October 2026, 00:50). Sections 1 and 2 are the evidence so far: the dataset, the final models, the figures and every table that was recomputed are reproduced exactly.
+
+To run it (PowerShell; any empty folder will do):
+
+```
+$env:SPACEGEN_OUTPUT = "C:\spacegen-regeneration"
+python run.py all                  # about eight hours in one go; --from STEP --to STEP runs a part
+python run.py check-regeneration   # must end with "everything compared is reproduced exactly"
+```
+
+`python run.py all --list` prints the eighteen steps. The comparison ignores timing columns, so independent steps may also be run side by side to save time: after `frozen-seeds`, the steps `e1`, `e8`, the three `e10-...` steps, `e12` and `failures` do not depend on one another (run `e10` after `e1` and the three `e10-...` steps, then `figures`).
+
+When it has passed, add its date and the last line of the check here, tick the last boxes in the Development Plan (Section 7, Final) and create the tag: `git tag final && git push origin final`.
 
 ## 4. What cannot be reproduced
 

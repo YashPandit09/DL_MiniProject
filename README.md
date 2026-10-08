@@ -205,9 +205,11 @@ does the same thing.
   is not supported
 - [x] T41 Math appendix (`reports/appendix_math.md`)
 - [x] T42a, T42b, T43 Report (`reports/report.md`): ten sections with the limitations, ethics and references
-- [x] T44, T46 Fresh-clone check and regeneration: a fresh clone from GitHub passes every test, generates from the committed
-  checkpoints, redraws every figure byte for byte and rebuilds dataset v1 with the identical hash; the frozen seeds
-  retrain bit-identically; `python run.py all` and `check-regeneration` do the full comparison (report, Section 10.3)
+- [x] T44 Fresh-clone check: a clone from GitHub passes every test, generates from the committed checkpoints, redraws
+  every figure byte for byte and rebuilds dataset v1 with the identical hash; the frozen seeds retrain bit-identically
+  (`reports/regeneration.md`)
+- [ ] T46 Full regeneration and the `final` tag: the tooling is there (`python run.py all`, `check-regeneration`), the
+  complete run is not done yet. It needs four to eight hours on mains power; `reports/regeneration.md` has the commands
 - [ ] T45, T47 Viva answers and cheat sheets (`reports/viva_prep.md`) and the demo script (`reports/demo_script.md`)
   are written; learning them, the rehearsals and the mock viva are for the team
 - [ ] T48 Submission: for the team. Still open besides: the hours logs and cross-teaching sessions, screenshots of

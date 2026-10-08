@@ -652,7 +652,7 @@ Setting `SPACEGEN_OUTPUT` to an empty folder first makes `all` write there, so t
 - **The dataset is reproduced.** Rebuilt in that clone in five minutes, it has the identical content hash.
 - **The models are reproduced.** The three frozen CVAE seeds, retrained from `configs/frozen.yaml`, are bit-identical to those trained two days earlier for Section 5.6. The hashes of all 64 trained models are in `reports/model_hashes.json`.
 - **The tables are reproduced where they were recomputed.** The baselines' rows of E1 equal the Week 1 baseline table. The screening tables, rebuilt from the saved runs with each run's sampling check repeated, equal the saved ones in every shared column.
-- **A complete regeneration.** `python run.py all` into an empty folder, followed by `python run.py check-regeneration`, repeats the comparison for every step of the project. [regeneration.md](regeneration.md) logs what our run of it gave.
+- **A complete regeneration.** `python run.py all` into an empty folder, followed by `python run.py check-regeneration`, repeats the comparison for every step of the project. [regeneration.md](regeneration.md) logs what has been run so far: at the time of writing, everything above, but not yet the complete regeneration, which needs four to eight hours on mains power.
 
 ### 10.4 References
 
