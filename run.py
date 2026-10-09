@@ -100,6 +100,10 @@ TASKS: dict[str, tuple[str, list[list[str]]]] = {
         "the demo's backup pictures and the report's demo figures, in reports/demo/",
         [[PY, "-m", "experiments.demo_assets"]],
     ),
+    "pdf": (
+        "the report, appendix, failure cases, viva notes and demo script as PDF files in reports/pdf/ (needs Edge or Chrome)",
+        [[PY, "-m", "experiments.report_pdf"]],
+    ),
     "app": (
         "the Streamlit demo: top 3 layouts, the five methods compared, the saved figures",
         [[PY, "-m", "streamlit", "run", "app/streamlit_app.py"]],

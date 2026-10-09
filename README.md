@@ -101,6 +101,7 @@ does the same thing.
 | `python run.py all` | Regenerate every result in order, about eight hours (`--list` prints the steps; `--from STEP --to STEP` runs a part). Set `SPACEGEN_OUTPUT` to an empty folder first, so it starts from nothing and leaves the saved results alone |
 | `python run.py check-regeneration` | Compare regenerated tables (outside their timing columns), model hashes, the dataset hash and the committed checkpoints with the saved ones (`--record` saves the hashes) |
 | `python run.py export-checkpoints` | Copy the final models from `runs/` to `checkpoints/` |
+| `python run.py pdf` | The report, the math appendix, the failure cases, the viva notes and the demo script as A4 PDF files in `reports/pdf/`, with typeset formulas, captions and page numbers. It prints through a headless Edge or Chrome and needs an internet connection for the formulas (MathJax). Run it again after changing a document |
 | `python run.py app` | The Streamlit demo (T34, T36): the room, door, furniture, budget and options in the sidebar; the top 3 layouts with their rule quality and evaluator score, cost, floor use, each hard check and JSON and PNG exports; the five methods compared on the same room; the saved figures. It opens without trained models and says what to run |
 | `python -m spacegen.viz layout.json layout.png` | Draw a layout JSON as a floor plan with its hard-check results |
 
