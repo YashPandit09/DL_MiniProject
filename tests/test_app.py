@@ -110,6 +110,19 @@ def test_saved_figures_are_listed_headline_first(tmp_path):
     assert listed[0][0].startswith("E1") and listed[2][0] == "something else"
 
 
+def test_results_table_shows_the_headline_columns_by_name():
+    import pandas as pd
+
+    from spacegen.paths import REPO_ROOT
+
+    final = logic.headline_table(pd.read_csv(REPO_ROOT / "reports" / "tables" / "e1_final.csv"))
+    assert list(final.columns) == list(logic.E1_COLUMNS.values())
+    m2 = final.set_index("method").loc["M2"]
+    assert m2["raw valid (%)"] == pytest.approx(69.8, abs=0.05) and m2["seeds"] == 3  # percent, not a share
+    first = logic.headline_table(pd.read_csv(REPO_ROOT / "reports" / "tables" / "e1.csv"))  # one run: no seed columns
+    assert "seeds" not in first.columns and list(first.columns)[:2] == ["method", "raw valid (%)"]
+
+
 @pytest.fixture
 def app(runs, monkeypatch):
     """The Streamlit script run headless on the tiny models."""
@@ -132,6 +145,10 @@ def test_app_generates_and_compares_from_a_clean_start(app):
     assert not app.exception
     result, _ = app.session_state["result"]
     assert result.candidates == 64 and result.condition is not None
+    # the large numbers are the two that differ between layouts; long values (the cost) are in a caption
+    assert [metric.label for metric in app.metric] == ["Rule quality", "Evaluator score"] * len(result.top)
+    assert all(len(metric.value) == 4 for metric in app.metric)
+    assert sum("INR" in caption.value for caption in app.caption) == len(result.top)
     app.button[1].click().run()
     assert not app.exception
     table, best, _ = app.session_state["comparison"]

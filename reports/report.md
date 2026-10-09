@@ -528,9 +528,13 @@ The PRD fixed these before any model was trained.
 `python run.py app` opens a Streamlit app with a sidebar and three tabs.
 
 - **Sidebar.** The room's width and depth, the door's wall and position, the furniture with its variants, a budget, an optional pinned item with its position and facing, the number of candidates, latent optimization on or off, and a seed.
-- **Layouts.** The top 3, each with its quality score, cost, share of the floor covered, the result of each hard check, the four quality terms, and JSON and PNG downloads.
+- **Layouts.** The top 3, each with its rule quality next to the score the CNN evaluator gave it, its cost, the share of the floor covered, the result of each hard check, the four quality terms, and JSON and PNG downloads.
 - **Compare methods.** B1, B2, G0, M1 and M2 sample the same room; a table counts their valid samples and each method's best layout is drawn.
-- **Training and results.** The saved figures of every experiment.
+- **Training and results.** The saved figures of every experiment, and the E1 table.
+
+![The app after "Generate layouts" for a 5 × 4 m room with a sofa, a TV unit and a coffee table](demo/app_layouts.png)
+
+`reports/demo/` holds a screenshot of each step of the demo (`app_layouts.png`, `app_refused.png`, `app_compare.png`, `app_pinned.png`, `app_results.png`), taken from the running app at a window width of 1440 pixels.
 
 The pictures below are produced by the app's own code (`python run.py demo-assets`) for a 5 × 4 m room with a sofa, a TV unit, a coffee table and an armchair.
 
@@ -539,6 +543,8 @@ The pictures below are produced by the app's own code (`python run.py demo-asset
 ![The five methods on the same room](demo/compare.png)
 
 ![The sofa pinned by the user](demo/pinned.png)
+
+The pinned request shows why the app prints both scores. With the sofa pinned at the north wall of the 5 × 4 m room (`demo/app_pinned.png`), 40 of the 64 candidates are valid and the first layout has a rule quality of 0.89. The second and third have 0.42 and 0.55. Two things cause this. The three layouts shown must differ by 0.3 m per item on average, and with the sofa fixed the best candidates are near-copies of the first, so the next two picks are the 15th and the 18th of the 40 in the CNN's ranking. And the CNN overrates those picks: it gives 0.78 to the second layout, whose TV unit faces the wall. Over the 40 valid candidates the two scores still correlate at 0.86, and the five layouts the CNN ranks highest all have a rule quality of 0.89 or 0.90.
 
 What the app does with a request it cannot serve matters as much as the layouts:
 

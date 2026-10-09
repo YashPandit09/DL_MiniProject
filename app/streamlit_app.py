@@ -104,21 +104,34 @@ for note in models.notes:
 
 layouts_tab, compare_tab, results_tab = st.tabs(["Layouts", "Compare methods", "Training and results"])
 
+PLAN_MARKS = ("In the plans, the grey floor can be reached from the door, the hatched square is the door's "
+              "clearance zone, and the thick edge of an item is its front.")
 
-def show_layout(layout, title: str, key: str, meta: dict) -> None:
-    """One floor plan with what a planner needs to judge it (US-04) and its exports."""
+
+def sentence(text: str) -> str:
+    """A message of the pipeline as a sentence (they start in lower case, to follow a colon)."""
+    return text[:1].upper() + text[1:] + "."
+
+
+def show_layout(candidate, rank: int, meta: dict) -> None:
+    """One floor plan with what a planner needs to judge it (US-04) and its exports. The two
+    large numbers are the ones that differ between the layouts of a request; the cost and the
+    floor covered depend on the furniture alone, so they are in the line below."""
+    layout, key = candidate.layout, f"layout_{rank}"
     facts = logic.describe(layout, catalog, rules)
-    png = logic.layout_png(layout, catalog, rules, title=title)
-    st.image(png, width="stretch")
-    first, second, third = st.columns(3)
-    first.metric("Quality", f"{facts['quality']:.2f}")
-    second.metric("Cost", f"{facts['cost']:,} INR")
-    third.metric("Floor covered", f"{facts['floor_use']:.0%}")
+    st.image(logic.layout_png(layout, catalog, rules, title=f"Layout {rank}", width=3.2), width="stretch")
+    first, second = st.columns(2)
+    first.metric("Rule quality", f"{facts['quality']:.2f}")
+    if candidate.evaluator_score is not None:
+        second.metric("Evaluator score", f"{candidate.evaluator_score:.2f}")
+    st.caption(f"Cost {facts['cost']:,} INR. The furniture covers {facts['floor_use']:.0%} of the floor.")
     st.markdown("  \n".join(f"{'Pass' if passed else '**Fail**'}: {label}" for label, passed in facts["checks"].items()))
     with st.expander("Quality terms"):
         st.table(pd.DataFrame({"term": list(facts["terms"]), "score": [f"{v:.2f}" for v in facts["terms"].values()]}))
     metrics = {"valid": facts["valid"], "quality": round(facts["quality"], 4), "cost": facts["cost"],
                "floor_use": round(facts["floor_use"], 4), **{k: round(v, 4) for k, v in facts["terms"].items()}}
+    score = "" if candidate.evaluator_score is None else f", evaluator score {candidate.evaluator_score:.2f}"
+    png = logic.layout_png(layout, catalog, rules, title=f"Layout {rank}: rule quality {facts['quality']:.2f}{score}")
     left, right = st.columns(2)
     left.download_button("Download JSON", logic.layout_json(layout, catalog, rules, metrics, meta),
                          file_name=f"{key}.json", mime="application/json", key=f"json_{key}")
@@ -137,23 +150,20 @@ with layouts_tab:
         if used != inputs:
             st.info("The inputs changed since these layouts were generated. Press **Generate layouts** to update them.")
         for warning in result.warnings:
-            st.warning(warning)
+            st.warning(sentence(warning))
         if result.condition is None:
-            st.error(f"This request cannot be furnished: {result.message}")
+            st.error(f"This request cannot be furnished: {result.message}.")
         else:
             method = "M2 (CVAE + latent optimization)" if used[7] else "M1 (CVAE samples)"
             st.caption(f"{method}: {result.valid} of {result.candidates} candidates passed every hard check, in "
                        f"{sum(result.seconds.values()):.1f} s. Ranked by "
-                       f"{'the CNN evaluator' if models.evaluator is not None else 'the rule score'}.")
+                       f"{'the CNN evaluator' if models.evaluator is not None else 'the rule score'}. {PLAN_MARKS}")
             if result.message:
-                st.warning(result.message.capitalize() + ".")
+                st.warning(sentence(result.message))
             for rank, (column, candidate) in enumerate(zip(st.columns(max(len(result.top), 1)), result.top), start=1):
                 with column:
-                    score = ("" if candidate.evaluator_score is None
-                             else f", evaluator score {candidate.evaluator_score:.2f}")
-                    show_layout(candidate.layout, f"Layout {rank}: rule quality {candidate.quality:.2f}{score}",
-                                f"layout_{rank}", {"rank": rank, "method": method, "seed": used[8],
-                                                   "cvae": str(models.cvae_run)})
+                    show_layout(candidate, rank, {"rank": rank, "method": method, "seed": used[8],
+                                                  "cvae": str(models.cvae_run)})
 
 with compare_tab:
     st.write("Every method samples the same room the same number of times. The table counts the samples that pass "
@@ -169,16 +179,21 @@ with compare_tab:
         table, best, used = st.session_state["comparison"]
         if used != inputs:
             st.info("The inputs changed since this comparison was made.")
-        st.dataframe(table.round(3), hide_index=True, width="stretch")
+        shown = table if table["note"].astype(bool).any() else table.drop(columns="note")
+        number = st.column_config.NumberColumn
+        st.dataframe(shown, hide_index=True, width="stretch", column_config={
+            "raw valid (%)": number(format="%.1f"), "mean quality (valid)": number(format="%.2f"),
+            "best quality": number(format="%.2f"), "seconds": number(format="%.2f")})
         st.caption("G0 is the rule-based generator the training data came from: it runs single attempts here, so its "
-                   "raw valid rate is its acceptance per attempt. It is the reference, not a competitor.")
+                   "raw valid rate is its acceptance per attempt. It is the reference, not a competitor. "
+                   f"{PLAN_MARKS}")
         for column, (name, layout) in zip(st.columns(len(best)), best.items()):
-            with column:
-                st.markdown(f"**{name}**")
+            with column:  # the name is drawn in the picture, so the five plans stay level
                 if layout is None:
+                    st.markdown(f"**{name}**")
                     st.write("No valid layout.")
                 else:
-                    st.image(logic.layout_png(layout, catalog, rules, title=name), width="stretch")
+                    st.image(logic.layout_png(layout, catalog, rules, title=name, width=2.4), width="stretch")
 
 with results_tab:
     figures = logic.result_figures()
@@ -188,11 +203,20 @@ with results_tab:
         titles = [title for title, _ in figures]
         chosen = st.selectbox("Figure", titles)
         st.image(str(dict(figures)[chosen]), width="stretch")
-    for name, caption in (("e1_final", "E1 on the frozen configuration: mean over three CVAE seeds (columns ending in "
-                                       "_std are the standard deviations)"),
-                          ("e1", "E1, first pass on the default configuration")):
+    columns = ("Quality is the rule score of the valid layouts, top 3 that of the three layouts shown under each "
+               "ranking, and ms per valid the time for one valid layout.")
+    for name, caption in (("e1_final", "E1 on the frozen configuration, 500 test rooms: M1 and M2 are the mean over "
+                                       "three CVAE seeds, with their standard deviation (± over seeds)."),
+                          ("e1", "E1, first pass on the default configuration, 500 test rooms.")):
         path = REPORTS_DIR / "tables" / f"{name}.csv"
         if path.exists():
-            st.caption(caption)
-            st.dataframe(pd.read_csv(path).round(3), hide_index=True, width="stretch")
+            e1 = pd.read_csv(path)
+            shown = logic.headline_table(e1)
+            one_decimal = ("raw valid (%)", "± over seeds", "ms per valid")
+            st.caption(f"{caption} {columns}")
+            st.dataframe(shown, hide_index=True, width="stretch", column_config={
+                label: st.column_config.NumberColumn(format="%.1f" if label in one_decimal else "%.2f")
+                for label in shown.columns if label not in ("method", "seeds")})
+            with st.expander("Every column of the table"):
+                st.dataframe(e1.round(3), hide_index=True, width="stretch")
             break

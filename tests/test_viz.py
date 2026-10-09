@@ -41,6 +41,20 @@ def test_broken_check_is_named_on_the_item_and_in_the_title(good_layout, catalog
     assert len(_red_patches(fig)) == 1
 
 
+def test_small_plan_keeps_its_labels_readable(good_layout, catalog, rules):
+    full = plot_layout(good_layout, catalog, rules, title="Layout 1")
+    small = plot_layout(good_layout, catalog, rules, title="Layout 1", width=3.2)
+    assert small.get_figwidth() == 3.2 < full.get_figwidth() / 2  # the same font sizes on a much smaller drawing
+    assert full.legends and not small.legends  # the app explains the marks once, in words
+    assert small.get_suptitle() == "Layout 1" and plot_layout(good_layout, catalog, rules, width=3.2).get_suptitle() == ""
+    assert {"sofa", "tv unit", "bookshelf", "armchair", "door"} <= set(_labels(small))
+    assert "coffee\ntable" in _labels(small) and "coffee table" in _labels(full)  # two lines where one is too long
+    door = next(t for t in small.axes[0].texts if t.get_text() == "door")
+    assert 0 < door.get_position()[0] < good_layout.width  # inside the room, clear of the axis labels
+    outside = next(t for t in full.axes[0].texts if t.get_text() == "door")
+    assert outside.get_position()[0] < 0  # the full picture is unchanged: the label stays outside the west wall
+
+
 def test_raster_plot_has_one_panel_per_channel(good_layout, catalog, rules):
     from spacegen.raster import CHANNELS, load_raster_config, rasterize_layouts
     config = load_raster_config()

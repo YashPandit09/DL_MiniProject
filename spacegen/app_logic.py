@@ -50,6 +50,9 @@ from spacegen.viz import SURFACE, plot_layout
 CHECKS = {"in_room": "H1 inside the room", "no_overlap": "H2 no overlap", "door_clear": "H3 door zone clear",
           "reachable": "H4 every item reachable"}
 METHODS = ("B1 uniform", "B2 statistical", "G0 generator", "M1 CVAE", "M2 CVAE + latent optimization")
+E1_COLUMNS = {"method": "method", "seeds": "seeds", "rvr": "raw valid (%)", "rvr_std": "± over seeds",
+              "quality": "quality", "quality_top3": "top 3: evaluator", "quality_top3_rule": "top 3: rule score",
+              "quality_top3_random": "top 3: random", "ms_per_valid": "ms per valid"}  # what the app shows of E1
 FIGURE_TITLES = {
     "e1_final_results": "E1: every method on the same test rooms (frozen configuration, three seeds)",
     "e1_final_ranking": "E1: quality of the top 3 under three rankings (frozen configuration)",
@@ -189,15 +192,27 @@ def compare_methods(models: Models, cond: Condition, n: int, seed: int, catalog:
     return pd.DataFrame(rows), best
 
 
-def layout_png(layout: Layout, catalog: RoomCatalog, rules: Rules, title: str | None = None) -> bytes:
+def layout_png(layout: Layout, catalog: RoomCatalog, rules: Rules, title: str | None = None,
+               width: float | None = None) -> bytes:
+    """The floor plan as a PNG: the full picture for an export, or with `width` (inches) the small
+    plan the app shows in a column (spacegen.viz.plot_layout)."""
     buffer = io.BytesIO()
-    plot_layout(layout, catalog, rules, title=title).savefig(buffer, format="png", facecolor=SURFACE)
+    plot_layout(layout, catalog, rules, title=title, width=width).savefig(buffer, format="png", facecolor=SURFACE)
     return buffer.getvalue()
 
 
 def layout_json(layout: Layout, catalog: RoomCatalog, rules: Rules, metrics: dict | None = None,
                 meta: dict | None = None) -> str:
     return json.dumps(layout_to_dict(layout, catalog, rules.door.width, metrics, meta), indent=2)
+
+
+def headline_table(table: pd.DataFrame) -> pd.DataFrame:
+    """An E1 table as the app shows it: the columns a viewer needs under readable names, with the
+    raw valid rate in percent. The first-pass table has no seeds, so those columns are left out."""
+    shown = table[[column for column in E1_COLUMNS if column in table.columns]].copy()
+    for column in shown.columns.intersection(["rvr", "rvr_std"]):
+        shown[column] = 100 * shown[column]
+    return shown.rename(columns=E1_COLUMNS)
 
 
 def result_figures(figures_dir: Path = REPORTS_DIR / "figures") -> list[tuple[str, Path]]:

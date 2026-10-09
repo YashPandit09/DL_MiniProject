@@ -101,7 +101,7 @@ does the same thing.
 | `python run.py all` | Regenerate every result in order, about eight hours (`--list` prints the steps; `--from STEP --to STEP` runs a part). Set `SPACEGEN_OUTPUT` to an empty folder first, so it starts from nothing and leaves the saved results alone |
 | `python run.py check-regeneration` | Compare regenerated tables (outside their timing columns), model hashes, the dataset hash and the committed checkpoints with the saved ones (`--record` saves the hashes) |
 | `python run.py export-checkpoints` | Copy the final models from `runs/` to `checkpoints/` |
-| `python run.py app` | The Streamlit demo (T34, T36): the room, door, furniture, budget and options in the sidebar; the top 3 layouts with quality, cost, floor use, each hard check and JSON and PNG exports; the five methods compared on the same room; the saved figures. It opens without trained models and says what to run |
+| `python run.py app` | The Streamlit demo (T34, T36): the room, door, furniture, budget and options in the sidebar; the top 3 layouts with their rule quality and evaluator score, cost, floor use, each hard check and JSON and PNG exports; the five methods compared on the same room; the saved figures. It opens without trained models and says what to run |
 | `python -m spacegen.viz layout.json layout.png` | Draw a layout JSON as a floor plan with its hard-check results |
 
 ## Reproducibility
@@ -212,6 +212,9 @@ does the same thing.
   complete run is not done yet. It needs four to eight hours on mains power; `reports/regeneration.md` has the commands
 - [ ] T45, T47 Viva answers and cheat sheets (`reports/viva_prep.md`) and the demo script (`reports/demo_script.md`)
   are written; learning them, the rehearsals and the mock viva are for the team
-- [ ] T48 Submission: for the team. Still open besides: the hours logs and cross-teaching sessions, screenshots of
-  the app window for the backup folder, and T39 (real rooms), which needs rooms measured by the team
+- [x] Screenshots of the app at each step of the demo (`reports/demo/app_*.png`), as the backup for the demo and
+  for the report's Section 6. Looking at them showed a cost figure cut off and plan labels too small to read; both
+  are fixed, and the app is light with the figures' blue as its accent (`.streamlit/config.toml`)
+- [ ] T48 Submission: for the team. Still open besides: the hours logs and cross-teaching sessions, and T39 (real
+  rooms), which needs rooms measured by the team
 - Not built: T24 and T31 (feature MLP), T50 (surrogate), T40 (3D view), T32 (bedroom)

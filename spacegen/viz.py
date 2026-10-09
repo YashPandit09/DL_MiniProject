@@ -46,8 +46,20 @@ _WALL_ENDS = {"S": ((0, 0), (1, 0)), "E": ((1, 0), (1, 1)), "N": ((1, 1), (0, 1)
 
 
 def plot_layout(layout: Layout, catalog: RoomCatalog, rules: Rules, title: str | None = None,
-                show_walkable: bool = True) -> Figure:
-    """A figure with one floor plan. Matplotlib's object API is used, so no global state."""
+                show_walkable: bool = True, width: float | None = None) -> Figure:
+    """A figure with one floor plan. Matplotlib's object API is used, so no global state.
+
+    `width` (inches) gives a small plan for a narrow column, as in the app: the drawing shrinks
+    and the fonts keep their size, so the labels stay readable. A small plan has only `title`
+    above it (no summary of the checks) and no legend: the caller explains the marks once."""
+    if width is not None:
+        scale = (width - 0.3) / (layout.width + 0.6)  # inches per meter, the tick labels aside
+        height = scale * (layout.depth + 0.6) + (0.5 if title else 0.25)
+        fig = Figure(figsize=(width, height), dpi=220, facecolor=SURFACE, layout="constrained")
+        draw_layout(fig.add_subplot(), layout, catalog, rules, show_walkable, scale=scale)
+        if title:
+            fig.suptitle(title, x=0.02, ha="left", fontsize=9, color=INK)
+        return fig
     fig = Figure(figsize=(1.6 + 1.3 * layout.width, 2.4 + 1.3 * layout.depth), dpi=150, facecolor=SURFACE,
                  layout="constrained")
     ax = fig.add_subplot()
@@ -65,8 +77,11 @@ def plot_layout(layout: Layout, catalog: RoomCatalog, rules: Rules, title: str |
 
 
 def draw_layout(ax: Axes, layout: Layout, catalog: RoomCatalog, rules: Rules,
-                show_walkable: bool = True) -> CheckResult:
-    """Draw one floor plan onto existing axes; returns the hard-check result it shows."""
+                show_walkable: bool = True, scale: float | None = None) -> CheckResult:
+    """Draw one floor plan onto existing axes; returns the hard-check result it shows.
+
+    `scale` (inches per meter) is given for a small plan: the door's label then goes inside its
+    clearance zone, clear of the axis, and a two-word name too long for its item takes two lines."""
     result = check_layout(layout, catalog, rules)
     w, d = layout.width, layout.depth
     ax.set_facecolor(SURFACE)
@@ -83,7 +98,10 @@ def draw_layout(ax: Axes, layout: Layout, catalog: RoomCatalog, rules: Rules,
     lo, _ = geometry.box_bounds(door.zone_center, door.zone_size)
     ax.add_patch(Rectangle(lo, *door.zone_size, facecolor="none", edgecolor=INK_MUTED, hatch="///",
                            linewidth=0.6, zorder=1))
-    _draw_walls(ax, layout, door, rules.door.width)
+    _draw_walls(ax, layout, door, rules.door.width, label=scale is None)
+    if scale is not None:
+        ax.text(*door.zone_center, "door", ha="center", va="center", fontsize=6.5, color=INK_SECONDARY, zorder=4,
+                bbox=dict(boxstyle="round,pad=0.15", facecolor=SURFACE, edgecolor="none"))
 
     broken = _broken_checks(result)
     eff = layout.eff_size
@@ -95,7 +113,10 @@ def draw_layout(ax: Axes, layout: Layout, catalog: RoomCatalog, rules: Rules,
                                edgecolor=CRITICAL if failing else FURNITURE_EDGE, zorder=2))
         if slot.rot_symmetry == 1:  # symmetric items have no meaningful front
             _draw_front(ax, layout.center[k], eff[k], int(layout.rot[k]))
-        label = slot.name.replace("_", " ") + (f"\n({', '.join(failing)})" if failing else "")
+        name = slot.name.replace("_", " ")
+        if scale is not None and len(name) * 0.58 * 6.5 / 72 > scale * eff[k].max():  # wider than the item
+            name = name.replace(" ", "\n", 1)
+        label = name + (f"\n({', '.join(failing)})" if failing else "")
         ax.text(*layout.center[k], label, ha="center", va="center", fontsize=6.5, color=INK, zorder=4,
                 rotation=90 if eff[k, 0] < eff[k, 1] else 0)  # run the label along a tall, thin item
 
@@ -291,15 +312,16 @@ def _quiet_axes(ax: Axes, keep: str = "bottom") -> None:
         spine.set_color(INK_MUTED)
 
 
-def _draw_walls(ax: Axes, layout: Layout, door, door_width: float) -> None:
+def _draw_walls(ax: Axes, layout: Layout, door, door_width: float, label: bool = True) -> None:
     room = layout.room
     for wall, (start, end) in _WALL_ENDS.items():
         a, b = np.array(start) * room, np.array(end) * room
         if wall == layout.door_wall:  # leave the door opening out of the wall
             along = (b - a) / np.linalg.norm(b - a)
             segments = [(a, door.center - along * door_width / 2), (door.center + along * door_width / 2, b)]
-            ax.text(*(door.center - door.inward * 0.15), "door", ha="center", va="center",
-                    fontsize=6.5, color=INK_SECONDARY)
+            if label:
+                ax.text(*(door.center - door.inward * 0.15), "door", ha="center", va="center",
+                        fontsize=6.5, color=INK_SECONDARY)
         else:
             segments = [(a, b)]
         for p, q in segments:
