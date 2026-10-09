@@ -161,7 +161,8 @@ def main(argv: list[str] | None = None) -> int:
         print(table[["item", "method", "seeds", "requests", *MEASURES]].round(3).to_string(index=False))
     from experiments.figures import FIGURES
 
-    for name, figure in FIGURES["e12"](table, None).items():
+    saved = pd.read_csv(tables / "e12.csv")  # the table as saved, as `python run.py figures` draws it
+    for name, figure in FIGURES["e12"](saved, None).items():
         figure.savefig(figures / f"e12_{name}.png", facecolor="#fcfcfb")
     print("wrote reports/tables/e12.csv and reports/figures/e12_pinned.png")
     return 0

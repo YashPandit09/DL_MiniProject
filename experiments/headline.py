@@ -403,7 +403,8 @@ def main(argv: list[str] | None = None) -> int:
         with pd.option_context("display.width", 250, "display.max_columns", 40):
             print(table.round(4).to_string(index=False))
         figures_dir.mkdir(parents=True, exist_ok=True)
-        for figure_name, figure in FIGURES[name](table, None).items():
+        saved = pd.read_csv(tables_dir / f"{name}{suffix}.csv")  # as `python run.py figures` draws it
+        for figure_name, figure in FIGURES[name](saved, None).items():
             figure.savefig(figures_dir / f"{name}{suffix}_{figure_name}.png", facecolor="#fcfcfb")
         after = speed_check()
         # read again here: experiments run side by side share this file

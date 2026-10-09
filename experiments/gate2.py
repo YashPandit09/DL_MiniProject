@@ -237,7 +237,8 @@ def main(argv: list[str] | None = None) -> int:
     from experiments.figures import FIGURES
 
     figures.mkdir(parents=True, exist_ok=True)
-    for figure_name, figure in FIGURES["gate2"](runs, None).items():
+    saved = pd.read_csv(tables / "gate2_runs.csv")  # the table as saved, as `python run.py figures` draws it
+    for figure_name, figure in FIGURES["gate2"](saved, None).items():
         figure.savefig(figures / f"gate2_{figure_name}.png", facecolor="#fcfcfb")
     if not args.no_train:
         note = (f"{chosen} ({', '.join(candidates[chosen])})." if candidates[chosen]

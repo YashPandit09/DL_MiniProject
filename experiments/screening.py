@@ -199,7 +199,8 @@ def main(argv: list[str] | None = None) -> int:
         with pd.option_context("display.width", 220, "display.max_columns", 30):
             print(table.drop(columns=["experiment", "run"], errors="ignore").round(4).to_string(index=False))
         from experiments.figures import FIGURES
-        for figure_name, figure in FIGURES[name](table, RUNS_DIR / "cvae" / "screen").items():
+        saved = pd.read_csv(tables_dir / f"{name}.csv")  # the table as saved, as `python run.py figures` draws it
+        for figure_name, figure in FIGURES[name](saved, RUNS_DIR / "cvae" / "screen").items():
             figures_dir.mkdir(parents=True, exist_ok=True)
             figure.savefig(figures_dir / f"{name}_{figure_name}.png", facecolor="#fcfcfb")
         print(f"wrote reports/tables/{name}.csv and its figures")
