@@ -128,7 +128,7 @@ All modules are in `spacegen/` unless a folder is given.
 | `app_logic.py`, `app/streamlit_app.py` | What the app computes, and its user interface | pipeline, baselines | B |
 | `provenance.py`, `seed.py`, `paths.py`, `config.py`, `env_check.py` | Run records (seed, configs, git commit, dataset hash), deterministic seeding, output folders, the machine check | none | shared |
 | `experiments/screening.py`, `gate2.py`, `headline.py`, `pinned.py`, `failure_cases.py` | E2 to E8; the freeze; E1, E8 and E10; E12; the failure analysis | all above | shared |
-| `experiments/figures.py`, `make_figures.py`, `regenerate.py`, `demo_assets.py` | Every figure from saved tables; the full regeneration and its check; the demo's pictures | all above | shared |
+| `experiments/figures.py`, `make_figures.py`, `regenerate.py`, `demo_assets.py`, `report_pdf.py` | Every figure from saved tables; the full regeneration and its check; the demo's pictures; the report and the other documents as PDF files | all above | shared |
 
 ---
 

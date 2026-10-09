@@ -72,7 +72,7 @@ th { background: #f0efec; font-weight: 600; }
 tr { break-inside: avoid; }
 code { font: 8.8pt Consolas, "Courier New", monospace; background: #f0efec; padding: 0 2pt; border-radius: 2pt; }
 pre { background: #f0efec; padding: 6pt 8pt; border-radius: 3pt; break-inside: avoid; }
-pre code { padding: 0; background: none; white-space: pre-wrap; overflow-wrap: anywhere; }
+pre code { font-size: 7.5pt; padding: 0; background: none; white-space: pre-wrap; overflow-wrap: anywhere; }
 blockquote { margin: 0.6em 0; padding-left: 10pt; border-left: 2pt solid #a9a8a1; color: #52514e; }
 figure { margin: 0.9em 0; text-align: center; break-inside: avoid; }
 figure img { max-width: 100%; max-height: 215mm; }

@@ -100,7 +100,11 @@ Add a differentiable reachability term or the CNN as a surrogate in latent optim
 
 ---
 
+<div style="break-before: page"></div>
+
 ## 2. One-page sheets
+
+In the PDF (`python run.py pdf`, `reports/pdf/viva_prep.pdf`) the sheets start on a page of their own, so they can be printed alone.
 
 ### 2.1 Formulas to know by heart
 

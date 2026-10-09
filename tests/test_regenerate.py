@@ -98,6 +98,26 @@ def test_check_counts_differences_in_tables_models_and_the_dataset(tmp_path):
     assert log[-1] == "everything compared is reproduced exactly"
 
 
+def test_figures_are_compared_byte_by_byte(tmp_path):
+    from experiments.regenerate import compare_figures
+
+    saved, new = tmp_path / "saved", tmp_path / "new"
+    saved.mkdir()
+    new.mkdir()
+    for name in ("e2_results.png", "e1_results.png", "e7_walls.png", "e6_gap.png"):
+        (saved / name).write_bytes(b"saved " + name.encode())
+    (new / "e2_results.png").write_bytes(b"saved e2_results.png")
+    (new / "e1_results.png").write_bytes(b"the same bars with other timings")
+    (new / "e7_walls.png").write_bytes(b"changed")
+    assert compare_figures(new, saved) == (["e2_results.png"], ["e1_results.png", "e7_walls.png"], ["e6_gap.png"])
+    log = []
+    problems = check(tables_dir=tmp_path / "no_tables", hashes=tmp_path / "none.json", frozen=tmp_path / "none.yaml",
+                     show=lambda name: None, log=log.append, listed=lambda: [], figures_dir=new, saved_figures=saved)
+    assert problems == 1  # e7_walls.png plots no measured time, so it must not change
+    assert ("figures: 1 identical, 1 redrawn with new timings, 1 different, 1 not regenerated; "
+            "different: e7_walls.png") in log
+
+
 def test_saved_tables_are_the_committed_ones():
     from experiments.regenerate import committed, saved_tables
 

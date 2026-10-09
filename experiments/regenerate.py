@@ -17,12 +17,12 @@ With SPACEGEN_OUTPUT set, data/, runs/ and reports/ are written below that folde
 saved results. Without it, `all` runs in place and reuses finished runs and cached rows, which is
 only a way to fill in what is missing.
 
-`all` covers every step that produces a saved result: the dataset, the baselines, the evaluator,
-the screening runs, the first passes, the Gate 2 comparison, the frozen seeds, the headline
-experiments, the pinned-furniture experiment, the failure analysis and the figures. It takes
-about eight hours on the project's laptop: keep it on mains power, and run it in parts with
---from and --to if a part may be interrupted. `--from frozen-seeds` gives the headline numbers
-alone (about four hours).
+`all` covers every step that produces a saved table or figure: the dataset, the generator's
+report, the baselines, the evaluator, the screening runs, the first passes, the Gate 2 comparison,
+the frozen seeds, the headline experiments, the pinned-furniture experiment, the failure analysis
+and the figures. It takes about eight hours on the project's laptop: keep it on mains power, and
+run it in parts with --from and --to if a part may be interrupted. `--from frozen-seeds` gives the
+headline numbers alone (about four hours).
 
 The check compares, on the same machine:
   tables    every reports/tables/*.csv with the version in the repository's last commit, leaving
@@ -33,6 +33,9 @@ The check compares, on the same machine:
   dataset   the content hash of data/<version>/ with the one in reports/model_hashes.json.
   frozen    the regenerated configs/frozen.yaml with the repository's (comments aside).
   copies    the models committed in checkpoints/ with the same hashes.
+  figures   after a regeneration into another folder, every reports/figures/*.png with the
+            repository's file, byte by byte. The four figures that plot a measured time
+            (TIMED_FIGURES) are expected to change; any other difference counts.
 
 checkpoints/ holds the three frozen CVAE seeds and the evaluator with their run records, so a
 fresh clone can run the app and the pipeline without training (spacegen.paths.saved_run).
@@ -60,6 +63,7 @@ HELD_OUT = ("interpolation", "unseen_combination", "out_of_range")
 TRAINED = ("cvae/default", "cvae/screen", "cvae/gate2", "cvae/frozen", "evaluator/e9a")  # below runs/
 HASHES = REPO_ROOT / "reports" / "model_hashes.json"  # the saved reference, in the repository
 EXPORTED = ("cvae/frozen/seed-0", "cvae/frozen/seed-1", "cvae/frozen/seed-2", "evaluator/e9a")  # copied to checkpoints/
+TIMED_FIGURES = ("e1_results.png", "e1_final_results.png", "e8_steps.png", "e8_final_steps.png")  # they plot a time
 
 
 def final(experiment: str, *options: str) -> list[str]:
@@ -71,6 +75,7 @@ def steps() -> list[tuple[str, list[list[str]]]]:
     """(name, the `python run.py` commands of the step), in dependency order."""
     return [
         ("data", [["data"]]),
+        ("generator-report", [["generator-report"]]),  # a Week 1 diagnostic; its figure is among the saved ones
         ("baselines", [["baselines"]]),
         ("evaluator", [["train-evaluator", "--epochs", "30", "--name", "e9a"], ["evaluator-report"]]),
         ("cvae", [["train-cvae"]]),
@@ -178,11 +183,22 @@ def compare_table(saved: pd.DataFrame, new: pd.DataFrame) -> str | None:
     return f"columns differ: {', '.join(different)}" if different else None
 
 
+def compare_figures(figures_dir: Path, saved_dir: Path) -> tuple[list[str], list[str], list[str]]:
+    """The saved figures as (identical, different, not regenerated), compared byte by byte."""
+    same, different, absent = [], [], []
+    for saved in sorted(saved_dir.glob("*.png")):
+        new = figures_dir / saved.name
+        (absent if not new.exists() else same if new.read_bytes() == saved.read_bytes() else different).append(saved.name)
+    return same, different, absent
+
+
 def check(tables_dir: Path = REPORTS_DIR / "tables", hashes: Path = HASHES, runs_dir: Path = RUNS_DIR,
           data_dir: Path | None = None, frozen: Path | None = None, show=committed, log=print,
-          copies: Path = CHECKPOINTS_DIR, listed=saved_tables) -> int:
-    """Compare tables, models, the dataset and the frozen configuration with what is saved; returns
-    the number of differences. Tables, runs or a dataset that are not there are reported, not counted."""
+          copies: Path = CHECKPOINTS_DIR, listed=saved_tables, figures_dir: Path = REPORTS_DIR / "figures",
+          saved_figures: Path = REPO_ROOT / "reports" / "figures") -> int:
+    """Compare tables, models, the dataset, the frozen configuration and the figures with what is
+    saved; returns the number of differences. Tables, runs, figures or a dataset that are not there
+    are reported, not counted."""
     problems = 0
     for path in sorted(tables_dir.glob("*.csv")):
         before = show(path.name)
@@ -225,6 +241,13 @@ def check(tables_dir: Path = REPORTS_DIR / "tables", hashes: Path = HASHES, runs
         same = yaml.safe_load(frozen.read_text(encoding="utf-8")) == load_config(CONFIG_DIR / "frozen.yaml")
         problems += not same
         log(f"frozen configuration: {'identical' if same else 'DIFFERENT'}")
+    if figures_dir.exists() and figures_dir.resolve() != saved_figures.resolve():
+        same, different, absent = compare_figures(figures_dir, saved_figures)
+        unexpected = [name for name in different if name not in TIMED_FIGURES]
+        problems += len(unexpected)
+        log(f"figures: {len(same)} identical, {len(different) - len(unexpected)} redrawn with new timings, "
+            f"{len(unexpected)} different, {len(absent)} not regenerated"
+            + (f"; different: {', '.join(unexpected)}" if unexpected else ""))
     log("everything compared is reproduced exactly" if problems == 0 else f"{problems} difference(s)")
     return problems
 
