@@ -78,7 +78,7 @@ def test_check_counts_differences_in_tables_models_and_the_dataset(tmp_path):
     assert model_hashes(runs) == recorded["models"]
     log = []
     options = dict(tables_dir=tables, hashes=hashes, runs_dir=runs, data_dir=data, frozen=tmp_path / "none.yaml",
-                   show=saved.get, log=log.append, copies=tmp_path / "no_copies")
+                   show=saved.get, log=log.append, copies=tmp_path / "no_copies", listed=lambda: sorted(saved))
     assert check(**options) == 1  # only changed.csv
     assert log[:3] == ["DIFF   changed.csv: columns differ: rvr", "new    fresh.csv (not in the last commit)",
                        "equal  same.csv"]
@@ -93,8 +93,17 @@ def test_check_counts_differences_in_tables_models_and_the_dataset(tmp_path):
     (data / "metadata.json").unlink()
     log.clear()
     assert check(**options) == 0  # what is not there is reported, not counted
-    assert "1 not regenerated" in log[2] and "not built" in log[3]
+    assert log[2] == "tables: 1 saved but not regenerated: changed.csv"
+    assert "1 not regenerated" in log[3] and "not built" in log[4]
     assert log[-1] == "everything compared is reproduced exactly"
+
+
+def test_saved_tables_are_the_committed_ones():
+    from experiments.regenerate import committed, saved_tables
+
+    names = saved_tables()
+    assert {"baselines.csv", "e1_final.csv", "e8_final.csv", "e10_final.csv", "e12.csv", "gate2.csv"} <= set(names)
+    assert names == sorted(names) and all(committed(name) is not None for name in names)
 
 
 def test_saved_run_prefers_the_run_folder_then_the_committed_copy(tmp_path, monkeypatch):

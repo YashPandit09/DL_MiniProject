@@ -160,6 +160,13 @@ def committed(name: str, repo: Path = REPO_ROOT) -> str | None:
     return shown.stdout if shown.returncode == 0 else None
 
 
+def saved_tables(repo: Path = REPO_ROOT) -> list[str]:
+    """The names of the tables in the repository's last commit."""
+    listed = subprocess.run(["git", "ls-tree", "--name-only", "HEAD", "reports/tables/"], cwd=repo,
+                            capture_output=True, text=True, encoding="utf-8")
+    return sorted(Path(line).name for line in listed.stdout.splitlines() if line.endswith(".csv"))
+
+
 def compare_table(saved: pd.DataFrame, new: pd.DataFrame) -> str | None:
     """None if the two tables agree outside their timing columns, else what differs."""
     keep = [c for c in saved.columns if not is_timing(c)]
@@ -173,7 +180,7 @@ def compare_table(saved: pd.DataFrame, new: pd.DataFrame) -> str | None:
 
 def check(tables_dir: Path = REPORTS_DIR / "tables", hashes: Path = HASHES, runs_dir: Path = RUNS_DIR,
           data_dir: Path | None = None, frozen: Path | None = None, show=committed, log=print,
-          copies: Path = CHECKPOINTS_DIR) -> int:
+          copies: Path = CHECKPOINTS_DIR, listed=saved_tables) -> int:
     """Compare tables, models, the dataset and the frozen configuration with what is saved; returns
     the number of differences. Tables, runs or a dataset that are not there are reported, not counted."""
     problems = 0
@@ -185,6 +192,9 @@ def check(tables_dir: Path = REPORTS_DIR / "tables", hashes: Path = HASHES, runs
         difference = compare_table(pd.read_csv(io.StringIO(before)), pd.read_csv(path))
         problems += difference is not None
         log(f"{'DIFF ' if difference else 'equal'}  {path.name}" + (f": {difference}" if difference else ""))
+    absent = [name for name in listed() if not (tables_dir / name).exists()]
+    if absent:
+        log(f"tables: {len(absent)} saved but not regenerated: {', '.join(absent)}")
     if hashes.exists():
         saved = json.loads(hashes.read_text(encoding="utf-8"))
         now = model_hashes(runs_dir)

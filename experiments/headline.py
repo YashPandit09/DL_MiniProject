@@ -364,7 +364,6 @@ def main(argv: list[str] | None = None) -> int:
     tables_dir, figures_dir = REPORTS_DIR / "tables", REPORTS_DIR / "figures"
     suffix = f"_{args.tag}" if args.tag else ""
     speed_file = (root or headlines[0].cache) / "speed.json"
-    speeds = json.loads(speed_file.read_text(encoding="utf-8")) if speed_file.exists() else {}
     for name in args.experiments:
         before = speed_check()
         if name == "e1":
@@ -407,6 +406,8 @@ def main(argv: list[str] | None = None) -> int:
         for figure_name, figure in FIGURES[name](table, None).items():
             figure.savefig(figures_dir / f"{name}{suffix}_{figure_name}.png", facecolor="#fcfcfb")
         after = speed_check()
+        # read again here: experiments run side by side share this file
+        speeds = json.loads(speed_file.read_text(encoding="utf-8")) if speed_file.exists() else {}
         speeds[name] = {"before": round(before, 4), "after": round(after, 4),
                         "finished": time.strftime("%Y-%m-%d %H:%M")}
         speed_file.write_text(json.dumps(speeds, indent=2), encoding="utf-8", newline="\n")
