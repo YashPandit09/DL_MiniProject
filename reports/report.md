@@ -56,7 +56,7 @@ So the generator stays in the system as the data source and as the reference eve
 - A geometry and rule engine with four hard checks and a quality score, and a procedural generator with three layout styles.
 - Dataset v1: 30,000 good layouts for the CVAE, 60,000 labelled layouts for the evaluator, three held-out test sets, all reproducible from one seed with a content hash.
 - A CVAE (177,732 parameters), a CNN evaluator (585,682 parameters), latent optimization, the end-to-end pipeline and a Streamlit app.
-- Twelve experiments, each a controlled comparison with saved tables and figures, and 400 automated tests.
+- Twelve experiments, each a controlled comparison with saved tables and figures, and more than 400 automated tests.
 
 ### 1.5 Scope and assumptions
 
@@ -642,15 +642,16 @@ Every value lives in `configs/default.yaml`, `configs/frozen.yaml` and `configs/
 pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cu121
 pip install -r requirements.txt
 python run.py check-env          # versions, GPU, determinism
-python run.py test               # 400 tests
+python run.py test               # more than 400 tests
 python run.py app                # the demo
 
 python run.py all --list         # every step, in order
 python run.py all                # regenerate everything (about eight hours; keep the laptop plugged in)
-python run.py check-regeneration # compare with the saved tables, models and dataset
+python run.py check-regeneration # compare with the saved tables, models, dataset and figures
+python run.py pdf                # this report as a PDF, in reports/pdf/
 ```
 
-Setting `SPACEGEN_OUTPUT` to an empty folder first makes `all` write there, so the regeneration starts from nothing and leaves the saved results untouched. Tables are compared outside their timing columns and must be exactly equal; models and the dataset are compared by hash.
+Setting `SPACEGEN_OUTPUT` to an empty folder first makes `all` write there, so the regeneration starts from nothing and leaves the saved results untouched. Tables are compared outside their timing columns and must be exactly equal; models and the dataset are compared by hash, and figures byte by byte.
 
 **What was checked (9 October 2026).**
 
@@ -658,7 +659,7 @@ Setting `SPACEGEN_OUTPUT` to an empty folder first makes `all` write there, so t
 - **The dataset is reproduced.** Rebuilt in that clone in five minutes, it has the identical content hash.
 - **The models are reproduced.** The three frozen CVAE seeds, retrained from `configs/frozen.yaml`, are bit-identical to those trained two days earlier for Section 5.6. The hashes of all 64 trained models are in `reports/model_hashes.json`.
 - **The tables are reproduced where they were recomputed.** The baselines' rows of E1 equal the Week 1 baseline table. The screening tables, rebuilt from the saved runs with each run's sampling check repeated, equal the saved ones in every shared column.
-- **A complete regeneration.** `python run.py all` into an empty folder, followed by `python run.py check-regeneration`, repeats the comparison for every step of the project. [regeneration.md](regeneration.md) logs what has been run so far: at the time of writing, everything above, but not yet the complete regeneration, which needs four to eight hours on mains power.
+- **A complete regeneration reproduces everything.** Every step of the project was run again into an empty folder, with nothing reused. All 21 result tables came out equal outside their timing columns. All 64 trained models and the dataset are identical by hash. The Gate 2 step chose the same configuration. 24 of the 28 figures are identical byte for byte, and the other four plot measured times. [regeneration.md](regeneration.md) is the log, including the three small defects the run exposed in our own tooling.
 
 ### 10.4 References
 

@@ -4,7 +4,7 @@ Constraint-aware furniture layout generation with deep learning (Deep Learning m
 A conditional VAE proposes layouts for a room, latent optimization repairs constraint
 violations, a rule checker verifies every layout, and a CNN evaluator ranks the survivors.
 
-**Start here:** the report, [reports/report.md](reports/report.md). To see it work:
+**Start here:** the report, [reports/report.md](reports/report.md) (as a PDF: `reports/pdf/report.pdf`). To see it work:
 `pip install -r requirements.txt`, then `python run.py app`. The final models are committed in
 `checkpoints/`, so the app runs from a fresh clone without training.
 
@@ -43,8 +43,10 @@ over three training seeds of the frozen configuration.
 | [reports/report.md](reports/report.md) | **The report**: problem, data, methods, twelve experiments, demo, failure cases, limitations, references |
 | [reports/appendix_math.md](reports/appendix_math.md) | Every loss, gradient and metric derived, with the test or experiment that checks it |
 | [reports/failure_cases.md](reports/failure_cases.md) | What goes wrong, how often, and a gallery of twelve cases |
-| [reports/viva_prep.md](reports/viva_prep.md) | Prepared answers to 25 viva questions, and the one-page sheets |
+| [reports/viva_prep.md](reports/viva_prep.md) | Prepared answers to 26 viva questions, and the one-page sheets |
 | [reports/demo_script.md](reports/demo_script.md) | The 5-minute demo, minute by minute, with backups |
+| [reports/regeneration.md](reports/regeneration.md) | What was regenerated from the seed and compared with the saved results, and what the comparison found |
+| `reports/pdf/` | The five documents above as PDF files (`python run.py pdf`) |
 | [PRD.md](PRD.md) | Goals, scope, user stories, success metrics, risks |
 | [Tech_Spec.md](Tech_Spec.md) | Data format, rules, models, experiments, math appendix |
 | [Architecture.md](Architecture.md) | Modules, data flow, design decisions |
@@ -122,7 +124,9 @@ does the same thing.
 - `python run.py all` regenerates everything and `python run.py check-regeneration` compares the
   result with what is saved. Checked on 9 October 2026: a fresh clone from GitHub passes
   every test without `data/` or `runs/`, generates from the committed checkpoints, redraws the figures
-  byte for byte and rebuilds dataset v1 with the identical hash (`reports/report.md`, Section 10.3).
+  byte for byte and rebuilds dataset v1 with the identical hash. A complete regeneration into an empty folder
+  then reproduced all 21 tables outside their timing columns, all 64 trained models, the dataset and the
+  Gate 2 choice exactly (`reports/regeneration.md`).
 - Timings (cost per valid layout, seconds per room) are measured with the methods taking turns
   on the same rooms, because the laptop's speed changes with its power and thermal state. Keep
   it on mains power for long runs.
@@ -209,13 +213,18 @@ does the same thing.
 - [x] T44 Fresh-clone check: a clone from GitHub passes every test, generates from the committed checkpoints, redraws
   every figure byte for byte and rebuilds dataset v1 with the identical hash; the frozen seeds retrain bit-identically
   (`reports/regeneration.md`)
-- [ ] T46 Full regeneration and the `final` tag: the tooling is there (`python run.py all`, `check-regeneration`), the
-  complete run is not done yet. It needs four to eight hours on mains power; `reports/regeneration.md` has the commands
+- [x] T46 Full regeneration and the `final` tag: every step, run again into an empty folder with nothing reused,
+  reproduced all 21 tables outside their timing columns, all 64 trained models, the dataset and the Gate 2 choice
+  exactly, and 24 of 28 figures byte for byte (the other four plot measured times). `reports/regeneration.md` is the
+  log, with the three small defects the run exposed in our own tooling. The repository is tagged `final`
+- [x] `python run.py pdf` builds the report, the math appendix, the failure cases, the viva notes and the demo script
+  as PDF files (`reports/pdf/`)
 - [ ] T45, T47 Viva answers and cheat sheets (`reports/viva_prep.md`) and the demo script (`reports/demo_script.md`)
   are written; learning them, the rehearsals and the mock viva are for the team
 - [x] Screenshots of the app at each step of the demo (`reports/demo/app_*.png`), as the backup for the demo and
   for the report's Section 6. Looking at them showed a cost figure cut off and plan labels too small to read; both
   are fixed, and the app is light with the figures' blue as its accent (`.streamlit/config.toml`)
-- [ ] T48 Submission: for the team. Still open besides: the hours logs and cross-teaching sessions, and T39 (real
-  rooms), which needs rooms measured by the team
+- [ ] T48 Submission: for the team. Put your names in line 3 of `reports/report.md` and run `python run.py pdf`
+  again. Still open besides: the hours logs and cross-teaching sessions, and T39 (real rooms), which needs rooms
+  measured by the team
 - Not built: T24 and T31 (feature MLP), T50 (surrogate), T40 (3D view), T32 (bedroom)

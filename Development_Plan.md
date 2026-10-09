@@ -221,16 +221,17 @@ T50 and T40 have no fixed day: do them only in gaps and only if Gate 2 was comfo
 - [x] First passes of E1 and E10 run without errors
 - [x] Final 3-seed runs on the frozen configuration launched
 - [ ] Actual hours logged for Week 2 tasks; if more than 15% over planned, apply the reduction ladder before starting any P1 or P2 task
-- [ ] Go or no-go recorded for: pinned furniture (T38), real rooms (T39), surrogate (T50), 3D (T40), bedroom (T32)
+- [x] Go or no-go recorded for: pinned furniture (T38), real rooms (T39), surrogate (T50), 3D (T40), bedroom (T32) (`reports/gate2.md`: T38 built; T39 stays open until the team has measured rooms; the others no-go)
 
 **Go/no-go rule for extras:** add an extra only if all Gate 2 boxes are ticked *and* the remaining days cover the report and viva preparation with at least one spare day.
 
 **Final (Day 20)** (evidence in `reports/regeneration.md`)
 - [x] Fresh-clone reproduction works
+- [x] Full regeneration into an empty folder compared with the saved results: exactly equal (9 October 2026)
 - [x] All figures regenerate from `make figures`
 - [x] Report complete with appendix
 - [ ] Demo and mock viva rehearsed twice
-- [ ] Git tag `final` created
+- [x] Git tag `final` created
 
 ---
 
@@ -325,22 +326,22 @@ Applying the whole ladder closes the gap exactly and leaves **no slack**, so tre
 
 ## 11. Submission checklist
 
-- [ ] Code repository tagged `final`
-- [ ] README with setup and reproduction commands
-- [ ] Dataset generator, config and seed (dataset files if size allows)
-- [ ] Trained checkpoints and `configs/frozen.yaml`
-- [ ] Results tables and figures
-- [ ] Report (with math appendix, limitations, ethics, references)
-- [ ] Demo app and screenshots as backup
-- [ ] Viva cheat sheet printed or on a phone
+- [x] Code repository tagged `final` (move the tag if you commit again before submitting: `git tag -f final && git push -f origin final`)
+- [x] README with setup and reproduction commands
+- [x] Dataset generator, config and seed (the dataset is rebuilt from them with the identical hash; its files are not committed)
+- [x] Trained checkpoints and `configs/frozen.yaml`
+- [x] Results tables and figures
+- [ ] Report (with math appendix, limitations, ethics, references): written, and built as `reports/pdf/report.pdf`. **Put your names in line 3 of `reports/report.md`, then run `python run.py pdf` again**
+- [x] Demo app and screenshots as backup (`reports/demo/app_*.png`)
+- [ ] Viva cheat sheet printed or on a phone: the sheets are the last pages of `reports/pdf/viva_prep.pdf`
 
 ---
 
 ## 12. Change notes
 
 **v1.6 (Week 3 built)**
-- Built: T33b (final runs), T34 and T36 (app), T35 (figures), T37 (failure analysis), T38 (pinned furniture and E12, the one extra taken), T41 (math appendix), T42a, T42b and T43 (report, `reports/report.md`), T44 and T46 (regeneration tooling and checks, see the report's Section 10.3 for what was verified), the documents for T45 (`reports/viva_prep.md`) and T47 (`reports/demo_script.md`), and the backup screenshots of the app (`reports/demo/app_*.png`).
-- **Left for the team, because only people can do them:** the Week 2 hours and the go or no-go record (Gate 2 boxes 8 and 9), cross-teaching sessions #2 and #3, learning the viva answers (T45), rehearsing the demo and the mock viva twice (T47), and the submission itself (T48).
+- Built: T33b (final runs), T34 and T36 (app), T35 (figures), T37 (failure analysis), T38 (pinned furniture and E12, the one extra taken), T41 (math appendix), T42a, T42b and T43 (report, `reports/report.md`), T44 and T46 (the fresh-clone check and the full regeneration into an empty folder, which reproduced every table, every trained model and the dataset exactly; log in `reports/regeneration.md`), `python run.py pdf` (the documents as PDF files, for T48), the documents for T45 (`reports/viva_prep.md`) and T47 (`reports/demo_script.md`), and the backup screenshots of the app (`reports/demo/app_*.png`).
+- **Left for the team, because only people can do them:** the names in the report, the Week 2 hours (Gate 2 box 8), the decision on T39 if rooms can be measured, cross-teaching sessions #2 and #3, learning the viva answers (T45), rehearsing the demo and the mock viva twice (T47), and the submission itself (T48).
 - Not built: T39 (real rooms: it needs 15 to 20 rooms measured by the team), T50 (surrogate), T40 (3D view), T32 (bedroom), T24 and T31 (feature MLP).
 - `run.py` gained the tasks `e8`, `e12`, `failures`, `figures`, `all`, `check-regeneration`, `demo-assets` and `app`.
 - Timings are measured with the methods taking turns (Tech Spec v1.6): the laptop's speed changes with its power and thermal state. Long runs need mains power.

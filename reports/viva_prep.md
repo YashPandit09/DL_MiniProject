@@ -98,6 +98,9 @@ Unseen combination: areas above 32 m², where each width and each depth also occ
 **24. What would you do with more time or real data?**
 Add a differentiable reachability term or the CNN as a surrogate in latent optimization, since reachability is M2's main remaining failure. Train on designer-made rooms (3D-FRONT) so the model learns taste rather than our rules. Replace the fixed six slots with a set-based model (a transformer) to allow any number of items, add windows and non-rectangular rooms, and tune the ranker on human ratings.
 
+**26. Can someone else reproduce your numbers?** *(not in the plan's list, but asked of every project)*
+On the same machine, exactly, and we checked it. Every random stream is seeded and PyTorch runs in deterministic mode. On 9 October we ran every step again into an empty folder, reusing nothing: all 21 result tables came out equal outside their timing columns, all 64 trained models and the dataset were identical bit for bit, and Gate 2 chose the same configuration. Two things do not reproduce. Timings change with the laptop's power and heat, which is why we time the methods in turn and quote ratios. And across devices the same seed gives different random numbers (CPU against GPU), so on another machine we would expect close, not identical, results. Point at `reports/regeneration.md`.
+
 ---
 
 <div style="break-before: page"></div>
